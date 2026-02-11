@@ -92,3 +92,54 @@ class Asset:
     frozen_cash: float = 0.0
     market_value: float = 0.0
     total_asset: float = 0.0
+
+
+@dataclass
+class Tick:
+    """逐笔行情"""
+    code: str
+    dt: datetime
+    last_price: float
+    volume: int
+    bid_price: float
+    bid_volume: int
+    ask_price: float
+    ask_volume: int
+    open_interest: float = 0.0
+
+
+@dataclass
+class Trade:
+    """成交记录"""
+    trade_id: str
+    order_id: str
+    code: str
+    direction: Direction
+    price: float
+    volume: int
+    dt: datetime
+    commission: float = 0.0
+    slippage: float = 0.0
+
+
+@dataclass
+class RiskEvent:
+    """风控事件"""
+    risk_type: str          # "MAX_POSITION" | "BLACKLIST" | "DRAWDOWN" ...
+    severity: str           # "WARNING" | "ERROR" | "CRITICAL"
+    code: str
+    message: str
+    dt: datetime
+    action_taken: str = ""  # "BLOCKED" | "ALERT_SENT"
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class StrategyMeta:
+    """策略元信息"""
+    name: str
+    version: str
+    params: dict = field(default_factory=dict)
+    status: str = "INITIALIZED"  # INITIALIZED | RUNNING | STOPPED | ERROR
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None

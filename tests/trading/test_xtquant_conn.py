@@ -19,6 +19,11 @@ from xtquant import xttrader
 from xtquant.xttrader import XtQuantTrader
 from xtquant.xttype import StockAccount
 import os
+import sys
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from jwquant.common.config import Config
 
 
 class SimpleTradeCallback(xttrader.XtQuantTraderCallback):
@@ -133,9 +138,10 @@ def logout(trader):
 
 
 if __name__ == "__main__":
-    # 配置信息（请根据实际情况修改）
-    QMT_PATH = r"C:\CICCQMT\userdata_mini"
-    ACCOUNT_ID = "8069529520"  # 替换为真实的资金账号
+    # 从配置文件读取配置
+    config = Config()
+    QMT_PATH = config.get("broker.xtquant.path")
+    ACCOUNT_ID = config.get("broker.xtquant.account_id")
 
     print(f"\n=== 诊断信息 ===")
     print(f"QMT 路径: {QMT_PATH}")

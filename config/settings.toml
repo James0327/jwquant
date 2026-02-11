@@ -28,7 +28,43 @@ max_daily_drawdown = 0.05    # 单日最大回撤
 max_order_amount = 100000    # 单笔最大金额
 blacklist = ["ST", "*ST"]    # 黑名单关键词
 
+# ---------------------------------------------------------------------------
+# 日志配置
+# ---------------------------------------------------------------------------
+[log]
+level = "INFO"               # DEBUG / INFO / WARNING / ERROR
+enable_file = true           # 是否输出到文件（按日滚动）
+log_dir = "./logs"           # 日志文件目录
+enable_json = false          # 文件日志是否使用 JSON 格式
+
+# ---------------------------------------------------------------------------
+# 通知配置
+# ---------------------------------------------------------------------------
 [notification]
-# 通知渠道配置
-enabled = false
-channels = ["wechat"]
+enabled = false              # 总开关
+channels = ["wechat"]        # 启用的渠道列表
+rate_limit_enabled = true    # 速率限制开关
+max_messages_per_minute = 10 # 每分钟最大消息数
+
+[notification.routing]
+INFO = ["wechat"]
+WARNING = ["wechat", "dingtalk"]
+ERROR = ["wechat", "dingtalk", "email"]
+CRITICAL = ["wechat", "dingtalk", "email"]
+
+[notification.wechat]
+provider = "serverchan"      # serverchan | pushplus
+token = ""
+
+[notification.dingtalk]
+webhook = ""
+secret = ""                  # 可选：签名密钥
+
+[notification.email]
+smtp_server = "smtp.qq.com"
+smtp_port = 587
+username = ""
+password = ""
+from_addr = ""
+to_addrs = []
+use_tls = true
