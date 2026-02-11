@@ -18,6 +18,7 @@ import time
 from xtquant import xttrader
 from xtquant.xttrader import XtQuantTrader
 from xtquant.xttype import StockAccount
+import os
 
 
 class SimpleTradeCallback(xttrader.XtQuantTraderCallback):
@@ -30,15 +31,20 @@ class SimpleTradeCallback(xttrader.XtQuantTraderCallback):
         print(f"[Callback] 账户状态更新: 账号={status.account_id}, 状态={status.status}")
 
 
-def login(qmt_path, account_id, session_id=123456):
+def login(qmt_path, account_id, max_retry=5, retry_interval=3):
     """
-    账号连接与登录
+    账号连接与登录（包含重试机制）
     :param qmt_path: mini QMT 的 userdata_mini 路径
     :param account_id: 资金账号
-    :param session_id: 会话ID
+    :param max_retry: 最大重试次数
+    :param retry_interval: 重试间隔（秒）
     :return: (trader, account)
     """
+    # 自动生成session_id（基于时间戳）
+    session_id = int(time.time())
+
     print(f"正在尝试连接 QMT: {qmt_path}")
+    print(f"会话ID: {session_id}")
     trader = XtQuantTrader(qmt_path, session_id)
 
     # 注册回调
@@ -56,16 +62,34 @@ def login(qmt_path, account_id, session_id=123456):
         print(f"QMT 客户端连接失败，错误码: {connect_result}")
         return None, None
 
-    # 订阅账户
+    # 订阅账户（带重试机制）
     account = StockAccount(account_id)
-    subscribe_result = trader.subscribe(account)
-    if subscribe_result == 0:
-        print(f"账户 {account_id} 订阅成功")
-    else:
-        print(f"账户 {account_id} 订阅失败，错误码: {subscribe_result}")
-        return trader, None
 
-    return trader, account
+    for retry_count in range(1, max_retry + 1):
+        if retry_count > 1:
+            print(f"\n第 {retry_count}/{max_retry} 次订阅尝试...")
+            time.sleep(retry_interval)
+
+        subscribe_result = trader.subscribe(account)
+
+        if subscribe_result == 0:
+            if retry_count == 1:
+                print(f"账户 {account_id} 订阅成功")
+            else:
+                print(f"账户 {account_id} 重试订阅成功！")
+            return trader, account
+        else:
+            if retry_count == 1:
+                print(f"账户 {account_id} 订阅失败，错误码: {subscribe_result}")
+                print("正在尝试延长等待时间后重试...")
+            else:
+                print(f"第 {retry_count} 次订阅失败，错误码: {subscribe_result}")
+
+            if retry_count == max_retry:
+                print(f"\n已达到最大重试次数 ({max_retry})，订阅失败")
+                return trader, None
+
+    return trader, None
 
 
 def query_account_info(trader, account):
@@ -110,14 +134,12 @@ def logout(trader):
 
 if __name__ == "__main__":
     # 配置信息（请根据实际情况修改）
-    QMT_PATH = r"D:\zzcf\userdata_mini"
-    ACCOUNT_ID = "100571991"  # 替换为真实的资金账号
+    QMT_PATH = r"C:\CICCQMT\userdata_mini"
+    ACCOUNT_ID = "8069529520"  # 替换为真实的资金账号
 
     print(f"\n=== 诊断信息 ===")
     print(f"QMT 路径: {QMT_PATH}")
     print(f"账户ID: {ACCOUNT_ID}")
-    import os
-
     print(f"路径是否存在: {os.path.exists(QMT_PATH)}")
 
     # 1. 实现账号连接
@@ -133,25 +155,12 @@ if __name__ == "__main__":
         # 保持运行一下，观察回调
         time.sleep(2)
 
-        # 3. 实现退出登录
-        logout(xt_trader)
     else:
         print("\n=== 故障排查建议 ===")
         print("1. 检查 MiniQMT 客户端是否已启动")
         print("2. 检查账户是否已在 QMT 中登录")
         print("3. 确认账户ID是否正确")
-        print("4. 尝试等待更长时间后再订阅账户")
-        print("\n正在尝试延长等待时间后重试...")
+        print("4. 检查网络连接是否正常")
 
-        if xt_trader:
-            # 延长等待时间重试
-            time.sleep(3)
-            account = StockAccount(ACCOUNT_ID)
-            retry_result = xt_trader.subscribe(account)
-            print(f"重试订阅结果: {retry_result}")
-
-            if retry_result == 0:
-                print("重试成功！")
-                query_account_info(xt_trader, account)
-
-            logout(xt_trader)
+    # 3. 实现退出登录
+    logout(xt_trader)

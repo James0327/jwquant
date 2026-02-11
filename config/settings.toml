@@ -1,0 +1,34 @@
+# JWQuant 系统配置
+
+[project]
+name = "jwquant"
+version = "0.1.0"
+
+[broker.xtquant]
+# QMT mini 的 userdata_mini 路径
+path = "C:\\CICCQMT\\userdata_mini"
+account_id = "8069529520"
+
+[data.tushare]
+token = ""
+
+[data.store]
+# 本地数据存储路径
+path = "./data"
+format = "hdf5"  # csv / hdf5 / sqlite
+
+[llm]
+provider = "openai"  # openai / qwen / local
+api_key = ""
+model = "gpt-4o"
+
+[risk]
+max_position_pct = 0.2       # 单票最大仓位占比
+max_daily_drawdown = 0.05    # 单日最大回撤
+max_order_amount = 100000    # 单笔最大金额
+blacklist = ["ST", "*ST"]    # 黑名单关键词
+
+[notification]
+# 通知渠道配置
+enabled = false
+channels = ["wechat"]

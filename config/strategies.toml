@@ -1,0 +1,21 @@
+# 策略参数配置
+
+[turtle]
+entry_window = 20        # 入场突破窗口
+exit_window = 10         # 离场突破窗口
+atr_period = 20          # ATR 计算周期
+risk_ratio = 0.01        # 单次风险比例
+
+[grid]
+grid_count = 10          # 网格数量
+grid_spacing = 0.02      # 网格间距（百分比）
+base_amount = 10000      # 每格交易金额
+
+[rotation]
+holding_count = 5        # 持仓股票数量
+rebalance_days = 5       # 调仓周期（交易日）
+market_cap_limit = 50    # 市值上限（亿）
+
+[chanlun]
+min_bi_length = 5        # 最小笔长度
+zhongshu_count = 3       # 中枢构成笔数
