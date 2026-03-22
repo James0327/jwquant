@@ -67,8 +67,8 @@ def login(qmt_path, account_id, max_retry=5, retry_interval=3):
         print(f"QMT 客户端连接失败，错误码: {connect_result}")
         return None, None
 
-    # 订阅账户（带重试机制）
-    account = StockAccount(account_id)
+    # 订阅股票账户（带重试机制）
+    account = StockAccount(account_id, account_type='STOCK')
 
     for retry_count in range(1, max_retry + 1):
         if retry_count > 1:
@@ -138,14 +138,14 @@ def logout(trader):
 
 
 if __name__ == "__main__":
-    # 从配置文件读取配置
+    # 从配置文件读取股票账户配置
     config = Config()
-    QMT_PATH = config.get("broker.xtquant.path")
-    ACCOUNT_ID = config.get("broker.xtquant.account_id")
+    QMT_PATH = config.get("broker.xtquant.stock.path")
+    ACCOUNT_ID = config.get("broker.xtquant.stock.account_id")
 
-    print(f"\n=== 诊断信息 ===")
+    print(f"\n=== 股票账户诊断信息 ===")
     print(f"QMT 路径: {QMT_PATH}")
-    print(f"账户ID: {ACCOUNT_ID}")
+    print(f"股票账户ID: {ACCOUNT_ID}")
     print(f"路径是否存在: {os.path.exists(QMT_PATH)}")
 
     # 1. 实现账号连接
@@ -162,10 +162,10 @@ if __name__ == "__main__":
         time.sleep(2)
 
     else:
-        print("\n=== 故障排查建议 ===")
+        print("\n=== 股票账户故障排查建议 ===")
         print("1. 检查 MiniQMT 客户端是否已启动")
-        print("2. 检查账户是否已在 QMT 中登录")
-        print("3. 确认账户ID是否正确")
+        print("2. 检查股票账户是否已在 QMT 中登录")
+        print("3. 确认股票账户ID是否正确")
         print("4. 检查网络连接是否正常")
 
     # 3. 实现退出登录

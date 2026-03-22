@@ -118,6 +118,23 @@ def load_config(
     return _config
 
 
+def get_strategy_config(strategy_name: str, default: dict = None) -> dict:
+    """获取指定策略的配置参数。
+    
+    Args:
+        strategy_name: 策略名称（如 "single_ma", "double_ma" 等）
+        default: 默认配置，当策略配置不存在时返回
+        
+    Returns:
+        策略配置字典
+    """
+    if default is None:
+        default = {}
+    
+    strategies_config = get("strategies", {})
+    return strategies_config.get(strategy_name, default)
+
+
 def get(key: str, default: Any = None) -> Any:
     """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。"""
     keys = key.split(".")

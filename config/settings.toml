@@ -4,10 +4,19 @@
 name = "jwquant"
 version = "0.1.0"
 
-[broker.xtquant]
+[broker.xtquant.stock]
+# 股票账户配置
+account_type = "STOCK"  # 账户类型：股票 (XTQuant account_type='STOCK')
 # QMT mini 的 userdata_mini 路径
 path = "C:\\CICCQMT\\userdata_mini"
 account_id = "8069529520"
+
+[broker.xtquant.futures]
+# 期货账户配置
+account_type = "FUTURE"  # 账户类型：期货 (XTQuant account_type='FUTURE')
+# QMT mini 的 userdata_mini 路径
+path = "C:\\CICCQMT\\userdata_mini"
+account_id = "99826010"
 
 [data.tushare]
 token = ""
