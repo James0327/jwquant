@@ -1,5 +1,8 @@
 # JWQuant 模块详细设计
 
+> 说明：这份文档描述的是理想模块设计，并不代表仓库当前所有模块都已实现。
+> 当前实现情况请优先参考 `README.md`、`docs/project-map.md` 和 `docs/ai-code-map.md`。
+
 本文档采用领域驱动分层架构，按交易域/投研域/跨域层组织模块。
 
 > 包路径统一为 `jwquant.<domain>.<module>.<file>`

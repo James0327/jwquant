@@ -16,6 +16,8 @@ from jwquant.trading.strategy.single_ma import SingleMAStrategy, create_single_m
 from jwquant.trading.strategy.double_ma import DoubleMAStrategy, create_double_ma_strategy
 from jwquant.trading.strategy.three_ma_cross import ThreeMACrossStrategy, create_three_ma_cross_strategy
 from jwquant.trading.strategy.macd_kdj import MACDKDJStrategy, create_macd_kdj_strategy
+from jwquant.trading.strategy.macd_signal import MACDSignalStrategy, create_macd_signal_strategy
+from jwquant.trading.strategy.macd_divergence import MACDDivergenceStrategy, create_macd_divergence_strategy
 
 
 class StrategyRegistry:
@@ -95,6 +97,20 @@ class StrategyRegistry:
             'description': '结合MACD趋势指标和KDJ超买超卖指标的复合策略',
             'category': '复合指标',
             'complexity': '中等',
+            'risk_level': '中等'
+        })
+        self.register_strategy("macd_signal", MACDSignalStrategy, create_macd_signal_strategy, {
+            'name': 'MACD趋势信号策略',
+            'description': '基于MACD零上金叉买入、死叉卖出的趋势策略',
+            'category': '技术分析',
+            'complexity': '简单',
+            'risk_level': '中等'
+        })
+        self.register_strategy("macd_divergence", MACDDivergenceStrategy, create_macd_divergence_strategy, {
+            'name': 'MACD背离策略',
+            'description': '基于MACD底背离买入、顶背离卖出的反转策略',
+            'category': '技术分析',
+            'complexity': '简单',
             'risk_level': '中等'
         })
         self._initialized = True

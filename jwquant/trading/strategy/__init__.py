@@ -30,6 +30,9 @@ from .single_ma import SingleMAStrategy, create_single_ma_strategy
 from .double_ma import DoubleMAStrategy, create_double_ma_strategy
 from .three_ma_cross import ThreeMACrossStrategy, create_three_ma_cross_strategy
 from .macd_kdj import MACDKDJStrategy, create_macd_kdj_strategy
+from .macd_base import BaseMACDStrategy
+from .macd_signal import MACDSignalStrategy, create_macd_signal_strategy
+from .macd_divergence import MACDDivergenceStrategy, create_macd_divergence_strategy
 
 __all__ = [
     # 基础类
@@ -53,6 +56,9 @@ __all__ = [
     'DoubleMAStrategy',
     'ThreeMACrossStrategy',
     'MACDKDJStrategy',
+    'BaseMACDStrategy',
+    'MACDSignalStrategy',
+    'MACDDivergenceStrategy',
     
     # 工厂函数
     'create_turtle_strategy',
@@ -62,5 +68,7 @@ __all__ = [
     'create_single_ma_strategy',
     'create_double_ma_strategy',
     'create_three_ma_cross_strategy',
-    'create_macd_kdj_strategy'
+    'create_macd_kdj_strategy',
+    'create_macd_signal_strategy',
+    'create_macd_divergence_strategy'
 ]

@@ -16,6 +16,78 @@ _config: dict[str, Any] = {}
 _SENSITIVE_KEYS = {"api_key", "token", "password", "secret", "account_id"}
 
 
+class Config:
+    """配置管理类，提供面向对象的配置访问接口。
+    
+    示例::
+    
+        config = Config()
+        path = config.get("broker.xtquant.path")
+        api_key = config.get("llm.api_key")
+    """
+    
+    def __init__(self):
+        """初始化配置，如果尚未加载则自动加载。"""
+        if not _config:
+            load_config()
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。
+        
+        Args:
+            key: 配置键，支持点号分隔的层级路径
+            default: 默认值，当配置项不存在时返回
+            
+        Returns:
+            配置值
+        """
+        return get(key, default)
+    
+    def get_str(self, key: str, default: str = "") -> str:
+        """获取字符串类型配置项。"""
+        return get_str(key, default)
+    
+    def get_int(self, key: str, default: int = 0) -> int:
+        """获取整数类型配置项。"""
+        return get_int(key, default)
+    
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        """获取浮点数类型配置项。"""
+        return get_float(key, default)
+    
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """获取布尔类型配置项。"""
+        return get_bool(key, default)
+    
+    def get_all(self) -> dict[str, Any]:
+        """返回完整配置字典。"""
+        return get_all()
+    
+    def get_masked_config(self) -> dict[str, Any]:
+        """返回脱敏后的配置字典副本。"""
+        return get_masked_config()
+    
+    def reload(self, primary: str | Path = "config/settings.toml", extra: list[str | Path] | None = None) -> dict[str, Any]:
+        """重新加载配置文件。
+        
+        Args:
+            primary: 主配置文件路径
+            extra: 额外配置文件列表
+            
+        Returns:
+            加载后的配置字典
+        """
+        return reload_config(primary, extra)
+    
+    def validate(self) -> list[str]:
+        """校验配置必填项和值范围。
+        
+        Returns:
+            错误信息列表，空列表表示通过
+        """
+        return validate()
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

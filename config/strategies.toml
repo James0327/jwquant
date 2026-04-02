@@ -1,5 +1,11 @@
 # 策略参数配置
 
+[indicators.macd]
+fast_period = 12        # MACD快线周期
+slow_period = 26        # MACD慢线周期
+signal_period = 9       # MACD信号线周期
+divergence_window = 2   # 背离拐点窗口
+
 [strategies.turtle]
 entry_window = 20        # 入场突破窗口
 exit_window = 10         # 离场突破窗口
@@ -49,3 +55,17 @@ kdj_slowd = 3            # KDJ D平滑周期
 # 策略参数
 min_history = 34         # 最小历史数据要求
 overbought_threshold = 80 # 超买阈值
+
+[strategies.macd_signal]
+macd_fast = 12           # MACD快线周期
+macd_slow = 26           # MACD慢线周期
+macd_signal = 9          # MACD信号线周期
+min_history = 35         # 最小历史数据要求
+position_ratio = 0.9     # 开仓资金使用比例
+
+[strategies.macd_divergence]
+macd_fast = 12           # MACD快线周期
+macd_slow = 26           # MACD慢线周期
+macd_signal = 9          # MACD信号线周期
+min_history = 35         # 最小历史数据要求
+position_ratio = 0.9     # 开仓资金使用比例
