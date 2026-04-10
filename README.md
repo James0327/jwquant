@@ -49,7 +49,7 @@ jwquant/
 - `jwquant.common.notifier`
 - `jwquant.trading.indicator.talib_wrap`
 - `jwquant.trading.strategy.*`
-- `scripts/test_*_strategy.py`
+- `scripts/demo_*_strategy.py`
 - `scripts/run_backtest.py`
 
 ### 主要是接口说明或规划骨架的区域
@@ -85,7 +85,7 @@ jwquant/
 仓库当前测试可以粗分为两类：
 
 - 可稳定离线运行的单元测试：例如 `tests/common/test_common.py`
-- 偏联调/演示性质的测试：例如 `tests/trading/test_tushare_conn.py`、`tests/trading/test_xtquant_conn.py`
+- 手动联调/诊断脚本：例如 `scripts/check_tushare_conn.py`、`scripts/check_xtquant_conn.py`
 
 已核对的本地结果：
 

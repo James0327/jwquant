@@ -17,6 +17,9 @@ from jwquant.trading.strategy.base import BaseStrategy, StrategyManager
 from jwquant.common.types import Bar, Signal, Asset, Position
 from jwquant.common.config import load_config
 from jwquant.trading.data.feed import DataFeed
+from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
+from jwquant.trading.data.store import LocalDataStore
+from jwquant.trading.data.sync import sync_xtquant_data
 
 
 class SimpleBacktester:
@@ -33,7 +36,7 @@ class SimpleBacktester:
         # 交易成本
         self.commission_rate = 0.0003  # 万分之三手续费
         self.slippage = 0.0001         # 万分之一滑点
-        
+
     def execute_trade(self, signal: Signal, price: float) -> bool:
         """执行交易"""
         code = signal.code
@@ -275,6 +278,12 @@ def main():
     parser = argparse.ArgumentParser(description='策略回测工具')
     parser.add_argument('--strategy', '-s', required=True, help='策略名称')
     parser.add_argument('--code', '-c', default='000001.SZ', help='股票代码')
+    parser.add_argument('--market', default='stock', choices=['stock', 'futures'], help='市场类型')
+    parser.add_argument('--timeframe', '-t', default='1d', help='周期，如 1d/1w/1m')
+    parser.add_argument('--adj', default='none', help='复权方式：none/qfq/hfq，仅股票有效')
+    parser.add_argument('--start', default=None, help='开始日期，优先用于本地数据读取')
+    parser.add_argument('--end', default=None, help='结束日期，优先用于本地数据读取')
+    parser.add_argument('--sample-data', action='store_true', help='强制使用样例数据，不读取本地存储')
     parser.add_argument('--days', '-d', type=int, default=252, help='回测天数')
     parser.add_argument('--capital', type=float, default=1000000, help='初始资金')
     
@@ -298,9 +307,51 @@ def main():
         print(f"错误: 无法创建策略 '{args.strategy}'")
         return
     
-    # 生成或加载数据
-    data = generate_sample_data(args.code, args.days)
-    
+    feed = DataFeed()
+    if args.sample_data:
+        data = generate_sample_data(args.code, args.days)
+    else:
+        end = args.end or datetime.now().strftime("%Y-%m-%d")
+        start = args.start
+        if start is None:
+            start = (pd.to_datetime(end) - timedelta(days=max(args.days * 2, args.days))).strftime("%Y-%m-%d")
+        data = feed.get_bars(
+            code=args.code,
+            start=start,
+            end=end,
+            timeframe=args.timeframe,
+            market=args.market,
+            adj=args.adj,
+        )
+        if data.empty:
+            print("本地数据为空，尝试通过 XtQuant 自动下载...")
+            store = LocalDataStore()
+            source = XtQuantDataSource()
+            try:
+                sync_xtquant_data(
+                    code=args.code,
+                    start=start,
+                    end=end,
+                    market=args.market,
+                    timeframe=args.timeframe,
+                    store=store,
+                    source=source,
+                    incremental=True,
+                )
+                data = feed.get_bars(
+                    code=args.code,
+                    start=start,
+                    end=end,
+                    timeframe=args.timeframe,
+                    market=args.market,
+                    adj=args.adj,
+                )
+            except RuntimeError as exc:
+                print(f"自动下载失败: {exc}")
+            if data.empty:
+                print("回退到样例数据。")
+                data = generate_sample_data(args.code, args.days)
+
     # 运行回测
     backtester = SimpleBacktester(initial_capital=args.capital)
     results = backtester.run_backtest(strategy, data)

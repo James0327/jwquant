@@ -163,7 +163,7 @@ jwquant/
 │   │   ├── data/                    # 行情数据
 │   │   │   ├── feed.py                  # 统一数据接口
 │   │   │   ├── cleaner.py               # 数据清洗
-│   │   │   ├── store.py                 # 本地存储(CSV/HDF5)
+│   │   │   ├── store.py                 # 本地存储(CSV/HDFS)
 │   │   │   └── sources/                 # 多数据源
 │   │   │       ├── tushare_src.py
 │   │   │       ├── baostock_src.py
@@ -229,13 +229,14 @@ jwquant/
 │
 ├── tests/                       # 测试
 │   ├── trading/
-│   │   └── test_xtquant_conn.py     # XtQuant 连接测试
 │   ├── research/
 │   └── agent/
 │
 ├── scripts/                     # 脚本
 │   ├── download_data.py             # 下载历史数据
-│   └── run_backtest.py              # 运行回测
+│   ├── run_backtest.py              # 运行回测
+│   ├── demo_*_strategy.py           # 策略演示脚本
+│   └── check_*_conn.py              # 手动联调/连接诊断脚本
 │
 ├── docs/                        # 文档
 ├── main.py                      # 入口

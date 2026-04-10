@@ -145,7 +145,7 @@
 - 如果要补 `jwquant.trading.backtest.engine`，可以参考这里的 `SimpleBacktester`
 - 但不能反过来说“包内回测引擎已经实现”
 
-### `scripts/test_*_strategy.py`
+### `scripts/demo_*_strategy.py`
 
 这些脚本适合作为：
 
@@ -186,11 +186,11 @@
 - 部分网格预期不匹配
 - 注册中心返回字段预期不匹配
 
-### 低可信或强环境依赖
+### 低可信或强环境依赖的手动脚本
 
-- [tests/trading/test_tushare_conn.py](/Users/james/PycharmProjects/jwquant/tests/trading/test_tushare_conn.py)
-- [tests/trading/test_xtquant_conn.py](/Users/james/PycharmProjects/jwquant/tests/trading/test_xtquant_conn.py)
-- [tests/trading/test_xtquant_futures.py](/Users/james/PycharmProjects/jwquant/tests/trading/test_xtquant_futures.py)
+- [check_tushare_conn.py](/Users/james/PycharmProjects/jwquant/scripts/check_tushare_conn.py)
+- [check_xtquant_conn.py](/Users/james/PycharmProjects/jwquant/scripts/check_xtquant_conn.py)
+- [check_xtquant_futures.py](/Users/james/PycharmProjects/jwquant/scripts/check_xtquant_futures.py)
 
 说明：
 

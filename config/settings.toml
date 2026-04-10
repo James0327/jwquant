@@ -28,7 +28,7 @@ token = ""
 [data.store]
 # 本地数据存储路径
 path = "./data"
-format = "hdf5"  # csv / hdf5 / sqlite
+format = "rocksdb"  # csv / sqlite / rocksdb / hdf5
 
 [llm]
 provider = "openai"  # openai / qwen / local

@@ -158,7 +158,7 @@
 - 包内正式回测模块还没补齐
 - 但作者已经在脚本层做了可运行验证
 
-### `scripts/test_*_strategy.py`
+### `scripts/demo_*_strategy.py`
 
 这些脚本更像“策略行为演示”而不是正式测试框架的一部分，适合：
 
@@ -180,15 +180,15 @@
 - 部分对 `GridStrategy` 的预期与实现不一致
 - 策略注册信息断言与当前返回结构不一致
 
-### 偏联调脚本的测试
+### 偏联调脚本
 
-下列测试依赖真实第三方环境，不应视为纯单元测试：
+下列脚本依赖真实第三方环境，不应视为纯单元测试：
 
-- `tests/trading/test_tushare_conn.py`
-- `tests/trading/test_xtquant_conn.py`
-- `tests/trading/test_xtquant_futures.py`
+- `scripts/check_tushare_conn.py`
+- `scripts/check_xtquant_conn.py`
+- `scripts/check_xtquant_futures.py`
 
-而且其中部分代码和当前 `common.config` 实现并不完全匹配，例如 `test_xtquant_conn.py` 仍引用了不存在的 `Config` 类。
+它们更适合作为手动联调入口，而不是默认 `pytest` 回归集合的一部分。
 
 ## 7. 代码成熟度判断
 
