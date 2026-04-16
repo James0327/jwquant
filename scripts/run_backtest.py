@@ -5,225 +5,25 @@
 import argparse
 import sys
 from datetime import datetime, timedelta
-import pandas as pd
+from pathlib import Path
+
 import numpy as np
-from typing import List, Optional
+import pandas as pd
 
 # 添加项目路径
-sys.path.insert(0, '/Users/james/PycharmProjects/jwquant')
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from jwquant.trading.strategy.registry import get_strategy_registry, create_registered_strategy
-from jwquant.trading.strategy.base import BaseStrategy, StrategyManager
-from jwquant.common.types import Bar, Signal, Asset, Position
-from jwquant.common.config import load_config
+from jwquant.common.config import Config, load_config
+from jwquant.trading.backtest import BacktestConfig, SimpleBacktester, write_backtest_report_html
+from jwquant.trading.backtest.cost import BacktestCostConfig
 from jwquant.trading.data.feed import DataFeed
 from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
 from jwquant.trading.data.store import LocalDataStore
 from jwquant.trading.data.sync import sync_xtquant_data
-
-
-class SimpleBacktester:
-    """简易回测引擎"""
-    
-    def __init__(self, initial_capital: float = 1000000):
-        self.initial_capital = initial_capital
-        self.current_capital = initial_capital
-        self.positions: dict = {}
-        self.trades: List[dict] = []
-        self.equity_curve: List[float] = []
-        self.dates: List[datetime] = []
-        
-        # 交易成本
-        self.commission_rate = 0.0003  # 万分之三手续费
-        self.slippage = 0.0001         # 万分之一滑点
-
-    def execute_trade(self, signal: Signal, price: float) -> bool:
-        """执行交易"""
-        code = signal.code
-        quantity = self.calculate_position_size(signal, price)
-        
-        if quantity <= 0:
-            return False
-            
-        # 计算交易成本
-        trade_value = quantity * price
-        commission = trade_value * self.commission_rate
-        total_cost = trade_value + commission
-        
-        if signal.signal_type.name == 'BUY':
-            # 买入检查资金
-            if total_cost > self.current_capital:
-                print(f"资金不足: 需要 {total_cost:.2f}, 可用 {self.current_capital:.2f}")
-                return False
-                
-            # 更新持仓
-            if code in self.positions:
-                # 加仓
-                pos = self.positions[code]
-                total_quantity = pos['quantity'] + quantity
-                avg_price = (pos['quantity'] * pos['avg_price'] + quantity * price) / total_quantity
-                self.positions[code] = {
-                    'quantity': total_quantity,
-                    'avg_price': avg_price
-                }
-            else:
-                # 开仓
-                self.positions[code] = {
-                    'quantity': quantity,
-                    'avg_price': price
-                }
-                
-            # 扣除资金
-            self.current_capital -= total_cost
-            
-        elif signal.signal_type.name == 'SELL':
-            # 卖出检查持仓
-            if code not in self.positions or self.positions[code]['quantity'] < quantity:
-                print(f"持仓不足: 可卖 {self.positions.get(code, {}).get('quantity', 0)}, 欲卖 {quantity}")
-                return False
-                
-            # 更新持仓
-            pos = self.positions[code]
-            remaining = pos['quantity'] - quantity
-            
-            if remaining <= 0:
-                # 清仓
-                del self.positions[code]
-            else:
-                # 减仓
-                self.positions[code]['quantity'] = remaining
-                
-            # 增加资金（扣除成本）
-            self.current_capital += trade_value - commission
-            
-            # 记录交易
-            profit = (price - pos['avg_price']) * quantity - commission
-            self.trades.append({
-                'date': signal.dt,
-                'code': code,
-                'direction': 'SELL',
-                'price': price,
-                'quantity': quantity,
-                'profit': profit,
-                'commission': commission
-            })
-        
-        # 记录买入交易
-        if signal.signal_type.name == 'BUY':
-            self.trades.append({
-                'date': signal.dt,
-                'code': code,
-                'direction': 'BUY',
-                'price': price,
-                'quantity': quantity,
-                'profit': 0,
-                'commission': commission
-            })
-        
-        return True
-    
-    def calculate_position_size(self, signal: Signal, price: float) -> int:
-        """计算仓位大小"""
-        # 简单的固定金额下单
-        target_value = min(100000, self.current_capital * 0.1)  # 最多10万或可用资金的10%
-        quantity = int(target_value / price / 100) * 100  # 整手交易
-        return max(quantity, 100)  # 最少100股
-    
-    def calculate_equity(self, current_prices: dict) -> float:
-        """计算当前权益"""
-        position_value = 0
-        for code, pos in self.positions.items():
-            if code in current_prices:
-                position_value += pos['quantity'] * current_prices[code]
-        
-        return self.current_capital + position_value
-    
-    def run_backtest(self, strategy: BaseStrategy, data: pd.DataFrame) -> dict:
-        """运行回测"""
-        print(f"开始回测策略: {strategy.name}")
-        print(f"数据范围: {data['dt'].min()} 至 {data['dt'].max()}")
-        print(f"初始资金: {self.initial_capital:,.2f}")
-        
-        # 初始化策略
-        strategy.on_init()
-        
-        # 更新资产信息
-        asset = Asset(cash=self.current_capital, total_asset=self.initial_capital)
-        strategy.update_asset(asset)
-        
-        # 逐日回测
-        for _, row in data.iterrows():
-            # 创建Bar对象
-            bar = Bar(
-                code=row['code'],
-                dt=row['dt'],
-                open=float(row['open']),
-                high=float(row['high']),
-                low=float(row['low']),
-                close=float(row['close']),
-                volume=float(row['volume']),
-                amount=float(row.get('amount', 0))
-            )
-            
-            # 执行策略
-            signal = strategy.on_bar(bar)
-            
-            # 执行交易信号
-            if signal:
-                success = self.execute_trade(signal, bar.close)
-                if success:
-                    print(f"{signal.dt.strftime('%Y-%m-%d')} {signal.code} "
-                          f"{signal.signal_type.value} @{signal.price:.2f} "
-                          f"[{signal.reason}]")
-            
-            # 更新每日权益
-            current_prices = {bar.code: bar.close}
-            equity = self.calculate_equity(current_prices)
-            self.equity_curve.append(equity)
-            self.dates.append(bar.dt)
-        
-        # 计算绩效指标
-        results = self.calculate_performance()
-        results['strategy_name'] = strategy.name
-        results['total_trades'] = len(self.trades)
-        results['final_equity'] = self.equity_curve[-1] if self.equity_curve else self.initial_capital
-        
-        return results
-    
-    def calculate_performance(self) -> dict:
-        """计算绩效指标"""
-        if not self.equity_curve:
-            return {}
-            
-        equity_series = pd.Series(self.equity_curve)
-        returns = equity_series.pct_change().dropna()
-        
-        # 基础指标
-        total_return = (equity_series.iloc[-1] - self.initial_capital) / self.initial_capital
-        annual_return = (1 + total_return) ** (252 / len(equity_series)) - 1
-        
-        # 风险指标
-        volatility = returns.std() * np.sqrt(252)
-        sharpe_ratio = annual_return / volatility if volatility > 0 else 0
-        
-        # 最大回撤
-        rolling_max = equity_series.expanding().max()
-        drawdown = (equity_series - rolling_max) / rolling_max
-        max_drawdown = drawdown.min()
-        
-        # 胜率
-        profitable_trades = [t for t in self.trades if t['direction'] == 'SELL' and t['profit'] > 0]
-        win_rate = len(profitable_trades) / len([t for t in self.trades if t['direction'] == 'SELL']) if self.trades else 0
-        
-        return {
-            'total_return': total_return,
-            'annual_return': annual_return,
-            'volatility': volatility,
-            'sharpe_ratio': sharpe_ratio,
-            'max_drawdown': max_drawdown,
-            'win_rate': win_rate,
-            'total_commission': sum(t['commission'] for t in self.trades)
-        }
+from jwquant.trading.risk import RiskConfig
 
 
 def generate_sample_data(code: str = "000001.SZ", days: int = 252) -> pd.DataFrame:
@@ -273,8 +73,126 @@ def generate_sample_data(code: str = "000001.SZ", days: int = 252) -> pd.DataFra
     return pd.DataFrame(data)
 
 
+def parse_codes(raw_codes: str) -> list[str]:
+    codes = [code.strip() for code in str(raw_codes).split(",")]
+    return [code for code in codes if code]
+
+
+def parse_portfolio_weights(raw_weights: str | None, codes: list[str]) -> dict[str, float] | None:
+    if raw_weights is None:
+        return None
+
+    raw_weights = str(raw_weights).strip()
+    if not raw_weights:
+        return None
+
+    if raw_weights.lower() == "equal":
+        if not codes:
+            return None
+        equal_weight = 1.0 / len(codes)
+        return {code: equal_weight for code in codes}
+
+    weights: dict[str, float] = {}
+    for item in raw_weights.split(","):
+        part = item.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(f"invalid portfolio weight: {part}")
+        code, weight = part.split("=", 1)
+        weights[code.strip()] = float(weight.strip())
+    return weights or None
+
+
+def load_backtest_risk_defaults() -> RiskConfig:
+    config = Config()
+    return RiskConfig.from_mapping(config.get("backtest.risk", {}))
+
+
+def load_backtest_cost_defaults() -> BacktestCostConfig:
+    """读取回测金额相关默认值。
+
+    这层默认值只负责“金额参数从哪里来”，不改回测计算公式：
+    - 佣金仍按成交额 * commission_rate
+    - 滑点仍按成交方向对价格做比例偏移
+    - 单笔金额上限仍先在 broker 层约束下单量
+    """
+    config = Config()
+    return BacktestCostConfig.from_mapping(config.get("backtest.cost", {}))
+
+
+def load_backtest_data(feed: DataFeed, args) -> pd.DataFrame:
+    codes = parse_codes(args.code)
+
+    if args.sample_data:
+        return pd.concat([generate_sample_data(code, args.days) for code in codes], ignore_index=True)
+
+    end = args.end or datetime.now().strftime("%Y-%m-%d")
+    start = args.start
+    if start is None:
+        start = (pd.to_datetime(end) - timedelta(days=max(args.days * 2, args.days))).strftime("%Y-%m-%d")
+
+    frames: list[pd.DataFrame] = []
+    missing_codes: list[str] = []
+    for code in codes:
+        bars = feed.get_bars(
+            code=code,
+            start=start,
+            end=end,
+            timeframe=args.timeframe,
+            market=args.market,
+            adj=args.adj,
+        )
+        if bars.empty:
+            missing_codes.append(code)
+        else:
+            frames.append(bars)
+
+    if missing_codes:
+        print(f"本地数据为空，尝试通过 XtQuant 自动下载: {', '.join(missing_codes)}")
+        store = LocalDataStore()
+        source = XtQuantDataSource()
+        for code in missing_codes:
+            try:
+                sync_xtquant_data(
+                    code=code,
+                    start=start,
+                    end=end,
+                    market=args.market,
+                    timeframe=args.timeframe,
+                    store=store,
+                    source=source,
+                    incremental=True,
+                )
+                bars = feed.get_bars(
+                    code=code,
+                    start=start,
+                    end=end,
+                    timeframe=args.timeframe,
+                    market=args.market,
+                    adj=args.adj,
+                )
+                if not bars.empty:
+                    frames.append(bars)
+            except RuntimeError as exc:
+                print(f"{code} 自动下载失败: {exc}")
+
+    if not frames:
+        print("回退到样例数据。")
+        return pd.concat([generate_sample_data(code, args.days) for code in codes], ignore_index=True)
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def main():
     """主函数"""
+    load_config()
+    # 风控默认值和金额默认值分开读取：
+    # - risk 负责“是否允许下单/是否触发退出”
+    # - cost 负责“成交会花多少钱/一笔最多按多少钱估量”
+    risk_defaults = load_backtest_risk_defaults()
+    cost_defaults = load_backtest_cost_defaults()
+
     parser = argparse.ArgumentParser(description='策略回测工具')
     parser.add_argument('--strategy', '-s', required=True, help='策略名称')
     parser.add_argument('--code', '-c', default='000001.SZ', help='股票代码')
@@ -286,11 +204,27 @@ def main():
     parser.add_argument('--sample-data', action='store_true', help='强制使用样例数据，不读取本地存储')
     parser.add_argument('--days', '-d', type=int, default=252, help='回测天数')
     parser.add_argument('--capital', type=float, default=1000000, help='初始资金')
+    parser.add_argument('--commission-rate', type=float, default=cost_defaults.commission_rate, help='佣金费率，按成交额比例收取')
+    parser.add_argument('--slippage', type=float, default=cost_defaults.slippage, help='滑点比例，按成交方向对价格做比例偏移')
+    parser.add_argument('--max-order-value', type=float, default=cost_defaults.max_order_value, help='单笔下单金额上限，broker 会先据此估算下单量')
+    parser.add_argument('--portfolio-weights', default=None, help='组合目标权重，如 000001.SZ=0.6,600519.SH=0.4 或 equal')
+    parser.add_argument('--rebalance-frequency', default='none', choices=['none', 'daily', 'weekly', 'monthly'], help='组合再平衡频率')
+    parser.add_argument('--rebalance-tolerance', type=float, default=0.02, help='目标权重偏离容忍度')
+    parser.add_argument('--risk-max-total-exposure', type=float, default=risk_defaults.max_total_exposure, help='组合总暴露上限')
+    parser.add_argument('--risk-max-single-weight', type=float, default=risk_defaults.max_single_weight, help='单标的权重上限')
+    parser.add_argument('--risk-max-futures-margin-ratio', type=float, default=risk_defaults.max_futures_margin_ratio, help='期货保证金占权益上限')
+    parser.add_argument('--risk-max-holdings', type=int, default=risk_defaults.max_holdings, help='最大持仓标的数，0 表示关闭')
+    parser.add_argument('--risk-max-order-amount', type=float, default=risk_defaults.max_order_amount, help='统一单笔下单金额上限，0 表示关闭')
+    parser.add_argument('--stop-loss-pct', type=float, default=risk_defaults.stop_loss_pct, help='统一固定止损比例，0 表示关闭')
+    parser.add_argument('--take-profit-pct', type=float, default=risk_defaults.take_profit_pct, help='统一固定止盈比例，0 表示关闭')
+    parser.add_argument('--trailing-stop-pct', type=float, default=risk_defaults.trailing_stop_pct, help='统一移动止损比例，0 表示关闭')
+    parser.add_argument('--max-drawdown-pct', type=float, default=risk_defaults.max_drawdown_pct, help='统一最大回撤止损比例，0 表示关闭')
+    parser.add_argument('--risk-conflict-policy', default=risk_defaults.conflict_policy, choices=['priority_first'], help='统一风控冲突仲裁策略')
+    parser.add_argument('--report-html', default=None, help='输出 HTML 回测风险报告路径')
+    parser.add_argument('--futures-margin-rate', type=float, default=cost_defaults.futures_margin_rate, help='期货保证金率，用于估算占用保证金和可开仓手数')
+    parser.add_argument('--futures-contract-multiplier', type=float, default=cost_defaults.futures_contract_multiplier, help='期货合约乘数，用于估算名义金额和盈亏')
     
     args = parser.parse_args()
-    
-    # 加载配置
-    load_config()
     
     # 获取策略注册中心
     registry = get_strategy_registry()
@@ -306,54 +240,43 @@ def main():
     if not strategy:
         print(f"错误: 无法创建策略 '{args.strategy}'")
         return
+
+    codes = parse_codes(args.code)
+    portfolio_weights = parse_portfolio_weights(args.portfolio_weights, codes)
     
     feed = DataFeed()
-    if args.sample_data:
-        data = generate_sample_data(args.code, args.days)
-    else:
-        end = args.end or datetime.now().strftime("%Y-%m-%d")
-        start = args.start
-        if start is None:
-            start = (pd.to_datetime(end) - timedelta(days=max(args.days * 2, args.days))).strftime("%Y-%m-%d")
-        data = feed.get_bars(
-            code=args.code,
-            start=start,
-            end=end,
-            timeframe=args.timeframe,
-            market=args.market,
-            adj=args.adj,
-        )
-        if data.empty:
-            print("本地数据为空，尝试通过 XtQuant 自动下载...")
-            store = LocalDataStore()
-            source = XtQuantDataSource()
-            try:
-                sync_xtquant_data(
-                    code=args.code,
-                    start=start,
-                    end=end,
-                    market=args.market,
-                    timeframe=args.timeframe,
-                    store=store,
-                    source=source,
-                    incremental=True,
-                )
-                data = feed.get_bars(
-                    code=args.code,
-                    start=start,
-                    end=end,
-                    timeframe=args.timeframe,
-                    market=args.market,
-                    adj=args.adj,
-                )
-            except RuntimeError as exc:
-                print(f"自动下载失败: {exc}")
-            if data.empty:
-                print("回退到样例数据。")
-                data = generate_sample_data(args.code, args.days)
+    data = load_backtest_data(feed, args)
 
-    # 运行回测
-    backtester = SimpleBacktester(initial_capital=args.capital)
+    # 把脚本参数显式落成 BacktestConfig，避免 broker / engine 再去隐式读配置。
+    # 这样一来：
+    # 1. CLI 覆盖优先级清晰
+    # 2. 测试可以直接断言金额参数是否传到回测内核
+    # 3. 佣金、滑点、保证金率等都能从同一个配置入口落地
+    backtester = SimpleBacktester(
+        BacktestConfig(
+            initial_capital=args.capital,
+            commission_rate=args.commission_rate,
+            slippage=args.slippage,
+            market=args.market,
+            max_order_value=args.max_order_value,
+            portfolio_weights=portfolio_weights,
+            rebalance_frequency=args.rebalance_frequency,
+            rebalance_tolerance=args.rebalance_tolerance,
+            risk_max_total_exposure=args.risk_max_total_exposure,
+            risk_max_single_weight=args.risk_max_single_weight,
+            risk_max_futures_margin_ratio=args.risk_max_futures_margin_ratio,
+            risk_max_holdings=args.risk_max_holdings,
+            risk_max_order_amount=args.risk_max_order_amount,
+            stop_loss_pct=args.stop_loss_pct,
+            take_profit_pct=args.take_profit_pct,
+            trailing_stop_pct=args.trailing_stop_pct,
+            max_drawdown_pct=args.max_drawdown_pct,
+            risk_conflict_policy=args.risk_conflict_policy,
+            risk_rule_priorities=dict(risk_defaults.rule_priorities),
+            futures_margin_rate=args.futures_margin_rate,
+            futures_contract_multiplier=args.futures_contract_multiplier,
+        )
+    )
     results = backtester.run_backtest(strategy, data)
     
     # 输出结果
@@ -361,6 +284,7 @@ def main():
     print("回测结果")
     print("="*50)
     print(f"策略名称: {results['strategy_name']}")
+    print(f"标的数量: {data['code'].nunique()}")
     print(f"回测期间: {data['dt'].min().strftime('%Y-%m-%d')} 至 {data['dt'].max().strftime('%Y-%m-%d')}")
     print(f"初始资金: {args.capital:,.2f}")
     print(f"最终权益: {results['final_equity']:,.2f}")
@@ -370,8 +294,24 @@ def main():
     print(f"夏普比率: {results['sharpe_ratio']:.2f}")
     print(f"最大回撤: {results['max_drawdown']*100:.2f}%")
     print(f"胜率: {results['win_rate']*100:.1f}%")
+    print(f"盈亏因子: {results['profit_factor']:.2f}")
+    print(f"平均单笔收益: {results['avg_trade_profit']:,.2f}")
     print(f"交易次数: {results['total_trades']}")
+    print(f"订单次数: {results['total_orders']}")
+    print(f"再平衡次数: {results['total_rebalances']}")
+    print(f"风险事件数: {results['risk_event_count']}")
+    print(f"风险分类统计: {results['report']['summary']['risk_by_category']}")
+    print(f"风险来源统计: {results['report']['summary']['risk_by_source']}")
+    print(f"风险动作统计: {results['report']['summary']['risk_by_action']}")
     print(f"总手续费: {results['total_commission']:,.2f}")
+
+    if args.report_html:
+        output_path = write_backtest_report_html(results, args.report_html)
+        print(f"HTML 报告: {output_path}")
+    order_status_counts = results["report"]["order_status_counts"]
+    if order_status_counts:
+        summary = ", ".join(f"{status}={count}" for status, count in sorted(order_status_counts.items()))
+        print(f"订单状态: {summary}")
 
 
 if __name__ == "__main__":

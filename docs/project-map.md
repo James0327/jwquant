@@ -4,6 +4,14 @@
 
 如果你只想先搞清楚“现在这个仓库到底能做什么、哪些地方已经写了、哪些地方还只是设计”，读这一份就够了。
 
+如果你想直接看“当前整体做到哪一步了”，优先看：
+
+- [progress-plan.md](/Users/james/PycharmProjects/jwquant/docs/progress-plan.md)
+- [configuration.md](/Users/james/PycharmProjects/jwquant/docs/configuration.md)
+- [strategy-configuration.md](/Users/james/PycharmProjects/jwquant/docs/strategy-configuration.md)
+- [single-stock-backtest-flow.md](/Users/james/PycharmProjects/jwquant/docs/single-stock-backtest-flow.md)
+- [multi-stock-backtest-flow.md](/Users/james/PycharmProjects/jwquant/docs/multi-stock-backtest-flow.md)
+
 ## 1. 一句话判断
 
 这是一个“目标很大、当前实现集中在基础设施和策略实验”的量化交易仓库。
@@ -12,6 +20,8 @@
 
 - 公共基础设施：配置、日志、事件、通知、共享类型
 - 策略框架：策略基类、管理器、注册中心、多个策略实现
+- 数据下载/本地存储/动态复权链路
+- 最小可用回测引擎与统一风控链路
 - 一部分演示脚本和单元测试
 
 较多模块仍处于：
@@ -29,6 +39,8 @@
 
 - `settings.toml`：系统总配置，含券商、数据源、LLM、日志、通知、风控
 - `strategies.toml`：策略参数模板
+- `docs/configuration.md`：配置项说明与敏感项建议
+- `docs/strategy-configuration.md`：策略参数说明与调参建议
 
 ### `jwquant/`
 
@@ -58,10 +70,10 @@
 | `jwquant.trading.strategy` | 策略抽象与具体策略 | 已实现较完整 |
 | `jwquant.trading.indicator` | 技术指标封装 | 部分实现 |
 | `jwquant.agent` | Agent 角色和流程编排 | 角色定义完整，执行流未落地 |
-| `jwquant.trading.data` | 数据获取/清洗/存储 | 大多占位 |
-| `jwquant.trading.backtest` | 回测与绩效分析 | 包内基本占位，脚本里有简易回测器 |
-| `jwquant.trading.execution` | 下单执行 | 占位 |
-| `jwquant.trading.risk` | 风控规则与拦截 | 占位 |
+| `jwquant.trading.data` | 数据获取/清洗/存储 | 已有本地存储、下载同步、动态复权主链 |
+| `jwquant.trading.backtest` | 回测与绩效分析 | 已有最小正式化回测引擎、组合与风控接入、结构化/HTML 报告 |
+| `jwquant.trading.execution` | 下单执行 | 已有执行前统一风控入口，真实执行闭环仍待补齐 |
+| `jwquant.trading.risk` | 风控规则与拦截 | 已有统一协议、仓位/组合/止盈止损规则与回测接入 |
 | `jwquant.research` | 投研、NLP、LLM | 目录齐全，代码多为占位 |
 | `jwquant.ml` | 机器学习/RL | 占位 |
 | `jwquant.mcp` | MCP 能力封装 | 占位 |
@@ -143,6 +155,64 @@
 
 `graph.py` 和 `workflow.py` 目前仍是骨架说明。
 
+### `jwquant.trading.data`
+
+当前已经不是占位目录。
+
+关键文件：
+
+- [jwquant/trading/data/store.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/store.py)
+- [jwquant/trading/data/feed.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/feed.py)
+- [jwquant/trading/data/sync.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/sync.py)
+- [jwquant/trading/data/cleaner.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/cleaner.py)
+
+当前已具备：
+
+- 本地 `rocksdb/csv/sqlite/hdf5` 存储
+- A 股 / 期货市场隔离存储
+- XtQuant 下载与增量同步
+- 股票原始行情 + 复权因子分离存储
+- 读取侧动态 `none/qfq/hfq`
+
+### `jwquant.trading.backtest`
+
+当前已经不是“只有 docstring 的占位包”。
+
+关键文件：
+
+- [jwquant/trading/backtest/engine.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/engine.py)
+- [jwquant/trading/backtest/risk.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/risk.py)
+- [jwquant/trading/backtest/report.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/report.py)
+
+当前已具备：
+
+- 最小正式化回测引擎
+- 多标的与组合推进
+- 组合权重与再平衡
+- 统一风控接入
+- 结构化 report 和 HTML 报告导出
+
+### `jwquant.trading.risk`
+
+当前也已经是正式模块，不再是占位。
+
+关键文件：
+
+- [jwquant/trading/risk/context.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/context.py)
+- [jwquant/trading/risk/interceptor.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/interceptor.py)
+- [jwquant/trading/risk/position.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/position.py)
+- [jwquant/trading/risk/portfolio.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/portfolio.py)
+- [jwquant/trading/risk/stop.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/stop.py)
+- [jwquant/trading/risk/config.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/config.py)
+
+当前已具备：
+
+- 统一风控协议层
+- 下单前拦截
+- 组合规则
+- 统一止盈止损
+- 风险配置与优先级仲裁
+
 ## 5. 脚本与主入口现状
 
 ### `main.py`
@@ -151,12 +221,13 @@
 
 ### `scripts/run_backtest.py`
 
-这是仓库里最接近“可跑业务流程”的脚本之一。它没有使用 `jwquant.trading.backtest.engine`，而是自己定义了一个 `SimpleBacktester`。
+这是仓库里最接近“可跑业务流程”的脚本之一。当前它已经改为复用包内的 `jwquant.trading.backtest.engine.SimpleBacktester`。
 
 这说明：
 
-- 包内正式回测模块还没补齐
-- 但作者已经在脚本层做了可运行验证
+- 包内已经有最小正式化回测内核
+- 回测、组合风控、报告导出已经接到主链
+- 仍然不是完整的生产级撮合/执行系统
 
 ### `scripts/demo_*_strategy.py`
 
@@ -200,28 +271,18 @@
 - `jwquant.trading.strategy.*`
 - `jwquant.trading.indicator.talib_wrap`
 
-### B 级：有设计、有命名、有目录，但还需要补主实现
+### B 级：已有最小可用闭环，但仍待继续增强
 
-- `jwquant.agent`
+- `jwquant.trading.data`
+- `jwquant.trading.backtest`
+- `jwquant.trading.risk`
+- `jwquant.trading.execution`
 - `scripts/run_backtest.py`
 
 ### C 级：目前更像架构预留位
 
-- `jwquant.trading.data.*`
-- `jwquant.trading.backtest.*`
-- `jwquant.trading.execution.*`
-- `jwquant.trading.risk.*`
+- `jwquant.agent`
 - `jwquant.research.*`
 - `jwquant.ml.*`
 - `jwquant.mcp.*`
 - `jwquant.dashboard.*`
-
-## 8. 后续维护建议
-
-如果后面要继续推进这个项目，建议优先补齐这几个方向：
-
-1. 先把 `main.py` 替换成真实入口
-2. 为 `trading.data` 和 `trading.backtest` 补上最小可用实现
-3. 把 `tests/test_strategies.py` 修到和当前代码一致
-4. 统一 `tests/trading/*` 的配置读取方式，移除旧接口引用
-5. 给蓝图文档加上“规划态”标签，避免误读

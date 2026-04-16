@@ -39,6 +39,12 @@ class SignalType(Enum):
     HOLD = "hold"
 
 
+class OrderType(Enum):
+    """订单类型"""
+    MARKET = "market"
+    LIMIT = "limit"
+
+
 @dataclass
 class Bar:
     """K线数据"""
@@ -59,6 +65,7 @@ class Signal:
     dt: datetime
     signal_type: SignalType
     price: float
+    order_type: OrderType = OrderType.MARKET
     strength: float = 1.0
     reason: str = ""
 
@@ -70,6 +77,8 @@ class Order:
     direction: Direction
     price: float
     volume: int
+    order_type: OrderType = OrderType.MARKET
+    offset: str = ""
     order_id: str = ""
     status: OrderStatus = OrderStatus.PENDING
     dt: Optional[datetime] = None
@@ -131,6 +140,8 @@ class RiskEvent:
     message: str
     dt: datetime
     action_taken: str = ""  # "BLOCKED" | "ALERT_SENT"
+    category: str = ""      # "position" | "portfolio" | "stop"
+    source: str = ""        # 规则名或模块来源
     metadata: dict = field(default_factory=dict)
 
 

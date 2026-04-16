@@ -1,83 +1,130 @@
 # JWQuant 系统配置
 
 [project]
-name = "jwquant"
-version = "0.1.0"
+name = "jwquant"     # 项目名称，用于标识当前配置所属系统
+version = "0.1.0"    # 项目版本号，主要用于记录配置与代码对应关系
 
 [broker.xtquant.stock]
 # 股票账户配置
 account_type = "STOCK"  # 账户类型：股票 (XTQuant account_type='STOCK')
-# QMT mini 的 userdata_mini 路径
+# QMT mini 的 userdata_mini 路径；应指向本机 QMT 实际账户目录
 # path = "C:\\CICCQMT\\userdata_mini"
 # account_id = "8069529520"
 # path = "C:\\GJ_QMT\\userdata_mini"
 # account_id = "8890195341"
-path = "C:\\GJ_QMT_TEST\\userdata_mini"
-account_id = "8880412630"
+path = "C:\\GJ_QMT_TEST\\userdata_mini"   # 本地 QMT 股票账户目录；为空或错误时通常无法连接交易终端
+account_id = "8880412630"                 # 股票资金账号；需与上面的 QMT 目录对应，敏感环境建议通过环境变量覆盖
 
 [broker.xtquant.futures]
 # 期货账户配置
 account_type = "FUTURE"  # 账户类型：期货 (XTQuant account_type='FUTURE')
-# QMT mini 的 userdata_mini 路径
-path = "C:\\CICCQMT\\userdata_mini"
-account_id = "99826010"
+# QMT mini 的 userdata_mini 路径；应指向本机 QMT 实际期货账户目录
+path = "C:\\CICCQMT\\userdata_mini"   # 本地 QMT 期货账户目录；需与 account_id 属于同一终端环境
+account_id = "99826010"               # 期货资金账号；用于连接对应期货账户，敏感环境建议通过环境变量覆盖
 
 [data.tushare]
-token = ""
+token = ""    # Tushare Token；留空表示不启用 Tushare 数据源，建议不要直接写入仓库配置，优先通过环境变量提供
 
 [data.store]
-# 本地数据存储路径
-path = "./data"
-format = "rocksdb"  # csv / sqlite / rocksdb / hdf5
+# 本地数据存储配置
+path = "./data"                  # 本地数据根目录；行情、因子、rocksdb 等文件都会落到这个目录下
+format = "rocksdb"               # 存储格式；csv 便于排查，sqlite 便于轻量查询，rocksdb 适合大批量 KV，hdf5 适合本地分析
+
+[data.download]
+window = "month"                 # 下载分段窗口；可选 day / month / quarter / year，month 表示按自然月分页下载
+chunk_retries = 2                # 单个下载分段失败时的最大重试次数；2 表示一个窗口最多尝试 2 次
+retry_interval = 1.0             # 单个下载分段的重试间隔，单位秒
+resume = true                    # 是否启用断点续传；true 时会根据本地最新时间从失败分段继续下载
 
 [llm]
-provider = "openai"  # openai / qwen / local
-api_key = ""
-model = "gpt-4o"
+provider = "openai"  # LLM 提供方；openai / qwen / local，需和下游调用逻辑支持的 provider 一致
+api_key = ""         # LLM API Key；留空表示不在配置文件中提供，建议不要直接写入仓库配置，优先通过环境变量覆盖
+model = "gpt-4o"     # 默认模型名称；应填写对应 provider 下实际可用的模型 id
 
 [risk]
-max_position_pct = 0.2       # 单票最大仓位占比
-max_daily_drawdown = 0.05    # 单日最大回撤
-max_order_amount = 100000    # 单笔最大金额
+max_position_pct = 0.2       # 单票最大仓位占比；0.2 表示单只股票最多占账户权益的 20%，1.0 表示最多占满账户权益
+max_daily_drawdown = 0.05    # 单日最大回撤比例；0.05 表示当日回撤达到 5% 触发限制
+max_order_amount = 100000    # 单笔最大金额，单位为账户计价货币；如 A 股通常表示 10 万元
 blacklist = ["ST", "*ST"]    # 黑名单关键词
+
+[backtest.cost]
+commission_rate = 0.0003              # 回测佣金费率；按成交额比例收取，0.0003 表示万分之三，成交 10 万时佣金约 30
+slippage = 0.0001                     # 回测滑点比例；0.0001 表示万分之一，买入成交价按参考价上浮 0.01%，卖出下浮 0.01%
+max_order_value = 100000.0            # broker 估算单笔可下金额时使用的第一层上限；0 或负数表示不在 broker 层额外限制
+futures_margin_rate = 0.12            # 期货保证金率；0.12 表示开仓时按合约名义金额的 12% 估算保证金占用
+futures_contract_multiplier = 300.0   # 期货合约乘数；如沪深 300 股指期货常见为 300，盈亏和名义金额都会乘这个值
+
+[backtest.risk]
+max_total_exposure = 1.0      # 回测组合总暴露上限；1.0 表示总暴露最多等于账户权益，0.8 表示最多用到 80% 权益，0 或负数表示关闭
+max_single_weight = 1.0       # 回测单标的权重上限；1.0 表示单标的最多占 100%，0.3 表示单标的最多占 30%，0 或负数表示关闭
+max_futures_margin_ratio = 1.0  # 回测期货保证金占权益上限；1.0 表示保证金最多占满权益，0.5 表示最多占 50%，0 或负数表示关闭
+max_holdings = 0              # 回测最大持仓标的数；0 表示关闭，3 表示最多同时持有 3 个代码
+max_order_amount = 0          # 回测统一单笔下单金额上限；单位为账户计价货币，0 或负数表示关闭
+stop_loss_pct = 0.0           # 回测统一固定止损比例；0.05 表示亏损达到 5% 触发退出，0 表示关闭
+take_profit_pct = 0.0         # 回测统一固定止盈比例；0.1 表示盈利达到 10% 触发退出，0 表示关闭
+trailing_stop_pct = 0.0       # 回测统一移动止损比例；0.08 表示从持仓最高有利价回撤 8% 触发退出，0 表示关闭
+max_drawdown_pct = 0.0        # 回测统一最大回撤止损比例；0.12 表示组合从净值高点回撤 12% 触发风控退出，0 表示关闭
+conflict_policy = "priority_first"  # 多条风控规则冲突时的仲裁策略；当前仅支持 priority_first，表示按优先级数值从小到大先命中的规则优先
+
+[backtest.risk.rule_priorities]
+futures_direction = 10   # 期货方向限制优先级；数字越小优先级越高，会更早参与仲裁
+no_naked_short = 10      # 裸卖空限制优先级；与上面相同，10 比 20 更早生效
+max_order_amount = 20    # 单笔金额上限优先级
+max_position_pct = 30    # 单标的仓位上限优先级
+max_holdings = 40        # 最大持仓标的数优先级
+max_total_exposure = 50  # 组合总暴露限制优先级
+max_drawdown = 10        # 最大回撤止损优先级
+fixed_stop_loss = 20     # 固定止损优先级
+trailing_stop = 30       # 移动止损优先级
+fixed_take_profit = 40   # 固定止盈优先级
+
+[execution.risk]
+max_total_exposure = 1.0      # 执行前组合总暴露上限；1.0 表示不超过账户权益，0.8 表示最多占用 80% 权益，0 或负数表示关闭
+max_single_weight = 1.0       # 执行前单标的权重上限；1.0 表示不限制，0.25 表示单标的最多占 25%
+max_futures_margin_ratio = 1.0  # 执行前期货保证金占权益上限；1.0 表示最多等于账户权益，0.6 表示最多占 60%
+max_holdings = 0              # 执行前最大持仓标的数；0 表示关闭，正整数表示允许同时持有的最大代码数
+max_order_amount = 0          # 执行前统一单笔下单金额上限；单位为账户计价货币，0 或负数表示关闭
+allow_futures_long = true     # 是否允许期货开多；false 时会拦截 open_long 类订单
+allow_futures_short = true    # 是否允许期货开空；false 时会拦截 open_short 类订单
+conflict_policy = "priority_first"  # 多条执行前风控规则冲突时的仲裁策略；当前仅支持 priority_first
 
 # ---------------------------------------------------------------------------
 # 日志配置
 # ---------------------------------------------------------------------------
 [log]
-level = "INFO"               # DEBUG / INFO / WARNING / ERROR
-enable_file = true           # 是否输出到文件（按日滚动）
-log_dir = "./logs"           # 日志文件目录
-enable_json = false          # 文件日志是否使用 JSON 格式
+level = "INFO"               # 日志级别；DEBUG 最详细，INFO 为常规运行，WARNING/ERROR 逐步收紧输出
+enable_file = true           # 是否输出到文件；true 时通常会按天或按运行批次写入日志目录
+log_dir = "./logs"           # 日志文件目录；相对路径以项目根目录为基准
+enable_json = false          # 文件日志是否使用 JSON 格式；true 更适合日志采集，false 更适合人工查看
 
 # ---------------------------------------------------------------------------
 # 通知配置
 # ---------------------------------------------------------------------------
 [notification]
-enabled = false              # 总开关
-channels = ["wechat"]        # 启用的渠道列表
-rate_limit_enabled = true    # 速率限制开关
-max_messages_per_minute = 10 # 每分钟最大消息数
+enabled = false              # 通知总开关；false 时下面各渠道配置即使完整也不会发送
+channels = ["wechat"]        # 默认启用的通知渠道列表；可选值需和下方渠道配置段对应
+rate_limit_enabled = true    # 是否启用速率限制；true 时会限制单位时间内的消息发送数量
+max_messages_per_minute = 10 # 每分钟最大消息数；仅在开启速率限制时生效
 
 [notification.routing]
-INFO = ["wechat"]
-WARNING = ["wechat", "dingtalk"]
-ERROR = ["wechat", "dingtalk", "email"]
-CRITICAL = ["wechat", "dingtalk", "email"]
+INFO = ["wechat"]                           # INFO 级消息默认路由到的渠道
+WARNING = ["wechat", "dingtalk"]           # WARNING 级消息默认路由到的渠道
+ERROR = ["wechat", "dingtalk", "email"]    # ERROR 级消息默认路由到的渠道
+CRITICAL = ["wechat", "dingtalk", "email"] # CRITICAL 级消息默认路由到的渠道
 
 [notification.wechat]
-provider = "serverchan"      # serverchan | pushplus
-token = ""
+provider = "serverchan"      # 微信通知提供方；serverchan | pushplus，需与下游适配器支持的实现一致
+token = ""                   # 微信通知 token；留空表示该渠道尚未配置可用凭据，建议通过环境变量或外部密钥管理提供
 
 [notification.dingtalk]
-webhook = ""
-secret = ""                  # 可选：签名密钥
+webhook = ""                 # 钉钉机器人 webhook 地址；留空表示该渠道尚未配置，建议不要直接写入公开配置
+secret = ""                  # 钉钉机器人签名密钥；部分机器人可选，留空表示不启用签名，建议通过环境变量提供
 
 [notification.email]
-smtp_server = "smtp.qq.com"
-smtp_port = 587
-username = ""
-password = ""
-from_addr = ""
-to_addrs = []
-use_tls = true
+smtp_server = "smtp.qq.com"  # SMTP 服务器地址；如 QQ 邮箱、企业邮箱或自建 SMTP 服务
+smtp_port = 587              # SMTP 端口；587 常用于 TLS，465 常用于 SSL
+username = ""                # SMTP 用户名；通常是邮箱账号，敏感环境建议通过环境变量覆盖
+password = ""                # SMTP 密码或授权码；强烈建议通过环境变量提供，不要直接写入配置文件
+from_addr = ""               # 发件人地址；留空时通常无法发送邮件，可与 username 相同
+to_addrs = []                # 收件人列表；可填写多个邮箱地址，注意避免把真实地址提交到公共仓库
+use_tls = true               # 是否启用 TLS；true 表示使用 STARTTLS 等安全连接方式

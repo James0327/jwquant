@@ -23,11 +23,15 @@
 
 1. `README.md`
 2. `docs/project-map.md`
-3. `jwquant/common/*.py`
-4. `jwquant/trading/strategy/*.py`
-5. `tests/common/test_common.py`
-6. `scripts/run_backtest.py`
-7. 最后再参考 `docs/architecture-overview.md` 和 `docs/module-design.md`
+3. `docs/progress-plan.md`
+4. `docs/configuration.md`
+5. `jwquant/common/*.py`
+6. `jwquant/trading/strategy/*.py`
+7. `jwquant/trading/data/*.py`
+8. `jwquant/trading/backtest/*.py`
+9. `jwquant/trading/risk/*.py`
+10. `tests/common/*.py` 与 `tests/trading/*.py`
+11. 最后再参考 `docs/architecture-overview.md` 和 `docs/module-design.md`
 
 ## 2. 可信入口
 
@@ -63,8 +67,9 @@
 
 注意：
 
-- 当前没有 `Config` 类
-- 如果代码里还在 `from jwquant.common.config import Config`，那是旧接口残留
+- 当前已经有 `Config` 类
+- 也保留了函数式接口 `load_config / get / get_*`
+- 新风控默认值现在也会通过配置读取
 
 ### 策略系统入口
 
@@ -102,17 +107,59 @@
 - 多数参数来自 `config/strategies.toml`
 - 更偏研究/教学用途，不是成熟实盘策略框架
 
-## 4. 哪些文件不要高估
+## 4. 当前已可直接复用的主链
 
-以下文件目前基本只有模块说明，几乎没有业务实现：
+### 数据主链
 
-- `jwquant/trading/data/feed.py`
-- `jwquant/trading/data/store.py`
-- `jwquant/trading/data/cleaner.py`
-- `jwquant/trading/data/sources/*.py`
-- `jwquant/trading/backtest/*.py`
-- `jwquant/trading/execution/*.py`
-- `jwquant/trading/risk/*.py`
+- [jwquant/trading/data/store.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/store.py)
+- [jwquant/trading/data/feed.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/feed.py)
+- [jwquant/trading/data/sync.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/data/sync.py)
+
+已具备：
+
+- 本地存储
+- 增量下载
+- 股票动态复权
+- A 股 / 期货市场隔离
+
+### 回测主链
+
+- [jwquant/trading/backtest/engine.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/engine.py)
+- [jwquant/trading/backtest/risk.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/risk.py)
+- [jwquant/trading/backtest/report.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/backtest/report.py)
+- [scripts/run_backtest.py](/Users/james/PycharmProjects/jwquant/scripts/run_backtest.py)
+
+已具备：
+
+- 最小正式化回测
+- 多标的推进
+- 再平衡
+- 统一风控
+- 结构化 report
+- HTML 报告导出
+
+### 风控主链
+
+- [jwquant/trading/risk/context.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/context.py)
+- [jwquant/trading/risk/interceptor.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/interceptor.py)
+- [jwquant/trading/risk/position.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/position.py)
+- [jwquant/trading/risk/portfolio.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/portfolio.py)
+- [jwquant/trading/risk/stop.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/stop.py)
+- [jwquant/trading/risk/config.py](/Users/james/PycharmProjects/jwquant/jwquant/trading/risk/config.py)
+
+已具备：
+
+- 协议层
+- 仓位规则
+- 组合规则
+- 止盈止损
+- 优先级执行
+- 执行前风控入口
+
+## 5. 哪些文件不要高估
+
+以下文件目前仍然主要是模块说明或预留位：
+
 - `jwquant/research/**/*`
 - `jwquant/ml/*`
 - `jwquant/mcp/*`
@@ -134,16 +181,26 @@
 - 用它们理解作者想把项目做成什么样
 - 不要用它们判断某模块是否真的已经可运行
 
+仍需谨慎看待但不再属于“纯占位”的区域：
+
+- `jwquant/trading/data/*`
+- `jwquant/trading/backtest/*`
+- `jwquant/trading/risk/*`
+- `jwquant/trading/execution/*`
+
+这些模块已经有最小闭环，但不应误判为完整生产级实现。
+
 ## 6. 脚本与包实现的关系
 
 ### `scripts/run_backtest.py`
 
-这是一个重要信号文件，因为它说明作者在“正式包实现未完成”的情况下，已经用脚本走通了一个最小回测流程。
+这是当前正式回测脚本入口。它已经开始复用包内的最小回测引擎，而不是把回测逻辑完全堆在脚本内。
 
 结论：
 
-- 如果要补 `jwquant.trading.backtest.engine`，可以参考这里的 `SimpleBacktester`
-- 但不能反过来说“包内回测引擎已经实现”
+- 包内 `jwquant.trading.backtest.engine` 已有最小正式化实现
+- 已接入统一风控和报告导出
+- 但仍不能把它视为完整的正式撮合/执行框架
 
 ### `scripts/demo_*_strategy.py`
 
@@ -213,10 +270,9 @@
 
 建议从这条线开始：
 
-1. 定义清晰的包内入口
-2. 补 `trading.data.feed`
-3. 补 `trading.backtest.engine`
-4. 再让 `scripts/run_backtest.py` 复用包内实现
+1. 先看 `docs/progress-plan.md`
+2. 再看 `docs/backtest-design.md` 和 `docs/risk-design.md`
+3. 沿现有主链补增强能力，而不是重起一套新实现
 
 ### 如果要做 Agent 或 LLM 功能
 
@@ -231,8 +287,8 @@
 
 在回答或改代码前，最好先检查这几件事：
 
-- 这个文件是不是只有 5 行左右 docstring
+- 这个文件是不是已经从占位演进成最小闭环
 - 这个测试是不是依赖外部服务
 - 这个模块是不是只在文档里存在、代码里没有
 - 这个“入口”是不是其实只是演示脚本
-- 这个接口是不是旧版本遗留，例如 `Config` 类
+- 这个接口是不是旧版本遗留，而不是当前真实入口
