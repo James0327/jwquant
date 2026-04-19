@@ -67,16 +67,7 @@ class MACDKDJStrategy(BaseStrategy):
         super().__init__(name, params)
         
         # 从配置文件获取策略参数
-        strategy_config = get_strategy_config(name, {
-            'macd_fast': 12,
-            'macd_slow': 26,
-            'macd_signal': 9,
-            'kdj_fastk': 9,
-            'kdj_slowk': 3,
-            'kdj_slowd': 3,
-            'min_history': 34,
-            'overbought_threshold': 80
-        })
+        strategy_config = get_strategy_config(name)
         
         # 合并传入的参数（优先级更高）
         if params:

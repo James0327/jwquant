@@ -5,12 +5,67 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 def _json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, default=str)
+
+
+def _sanitize_filename_part(value: Any) -> str:
+    text = str(value).strip()
+    if not text:
+        return "unknown"
+    text = text.replace(" ", "_")
+    return re.sub(r'[\\/:*?"<>|]+', "_", text)
+
+
+def _normalize_report_date(value: Any) -> str:
+    text = str(value).strip()
+    if not text:
+        return "unknown"
+
+    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+    if match:
+        return match.group(0).replace("-", "")
+
+    match = re.search(r"\d{8}", text)
+    if match:
+        return match.group(0)
+
+    return _sanitize_filename_part(text)
+
+
+def build_backtest_report_filename(strategy_name: Any, start_date: Any, end_date: Any) -> str:
+    strategy_label = _sanitize_filename_part(strategy_name)
+    start_label = _normalize_report_date(start_date)
+    end_label = _normalize_report_date(end_date)
+    return f"{strategy_label}_{start_label}_{end_label}.html"
+
+
+def resolve_unique_report_path(output_path: str | Path) -> Path:
+    path = Path(output_path)
+    if not path.exists():
+        return path
+
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{path.stem}（{counter}）{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def build_backtest_report_output_path(
+    output_dir: str | Path,
+    strategy_name: Any,
+    start_date: Any,
+    end_date: Any,
+) -> Path:
+    filename = build_backtest_report_filename(strategy_name, start_date, end_date)
+    return resolve_unique_report_path(Path(output_dir) / filename)
 
 
 def _build_equity_svg(equity_records: list[dict[str, Any]]) -> str:
@@ -136,7 +191,7 @@ def render_backtest_report_html(results: dict[str, Any]) -> str:
 
 
 def write_backtest_report_html(results: dict[str, Any], output_path: str | Path) -> Path:
-    path = Path(output_path)
+    path = resolve_unique_report_path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_backtest_report_html(results), encoding="utf-8")
     return path

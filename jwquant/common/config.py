@@ -31,33 +31,25 @@ class Config:
         if not _config:
             load_config()
     
-    def get(self, key: str, default: Any = None) -> Any:
-        """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。
-        
-        Args:
-            key: 配置键，支持点号分隔的层级路径
-            default: 默认值，当配置项不存在时返回
-            
-        Returns:
-            配置值
-        """
-        return get(key, default)
+    def get(self, key: str) -> Any:
+        """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。"""
+        return get(key)
     
-    def get_str(self, key: str, default: str = "") -> str:
+    def get_str(self, key: str) -> str:
         """获取字符串类型配置项。"""
-        return get_str(key, default)
+        return get_str(key)
     
-    def get_int(self, key: str, default: int = 0) -> int:
+    def get_int(self, key: str) -> int:
         """获取整数类型配置项。"""
-        return get_int(key, default)
+        return get_int(key)
     
-    def get_float(self, key: str, default: float = 0.0) -> float:
+    def get_float(self, key: str) -> float:
         """获取浮点数类型配置项。"""
-        return get_float(key, default)
+        return get_float(key)
     
-    def get_bool(self, key: str, default: bool = False) -> bool:
+    def get_bool(self, key: str) -> bool:
         """获取布尔类型配置项。"""
-        return get_bool(key, default)
+        return get_bool(key)
     
     def get_all(self) -> dict[str, Any]:
         """返回完整配置字典。"""
@@ -190,73 +182,86 @@ def load_config(
     return _config
 
 
-def get_strategy_config(strategy_name: str, default: dict = None) -> dict:
-    """获取指定策略的配置参数。
-    
-    Args:
-        strategy_name: 策略名称（如 "single_ma", "double_ma" 等）
-        default: 默认配置，当策略配置不存在时返回
-        
-    Returns:
-        策略配置字典
-    """
-    if default is None:
-        default = {}
-    
-    strategies_config = get("strategies", {})
-    return strategies_config.get(strategy_name, default)
+def _ensure_loaded() -> None:
+    """在首次访问配置时自动加载默认配置文件。"""
+    if not _config:
+        load_config()
 
 
-def get(key: str, default: Any = None) -> Any:
-    """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。"""
+def _lookup(key: str, *, required: bool) -> Any:
+    """按点号路径解析配置项。"""
+    _ensure_loaded()
     keys = key.split(".")
     value = _config
     for k in keys:
-        if isinstance(value, dict):
-            value = value.get(k)
-        else:
-            return default
+        if not isinstance(value, dict) or k not in value:
+            if required:
+                raise KeyError(f"missing config key: {key}")
+            return None
+        value = value[k]
         if value is None:
-            return default
+            if required:
+                raise KeyError(f"missing config key: {key}")
+            return None
     return value
 
 
-def get_str(key: str, default: str = "") -> str:
+def get_strategy_config(strategy_name: str) -> dict:
+    """获取指定策略的配置参数。"""
+    strategies_config = get("strategies")
+    if not isinstance(strategies_config, dict) or strategy_name not in strategies_config:
+        raise KeyError(f"missing strategy config: strategies.{strategy_name}")
+    strategy_config = strategies_config[strategy_name]
+    if not isinstance(strategy_config, dict):
+        raise TypeError(f"strategy config must be a mapping: strategies.{strategy_name}")
+    return strategy_config
+
+
+def get(key: str) -> Any:
+    """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。"""
+    return _lookup(key, required=True)
+
+
+def get_str(key: str) -> str:
     """获取字符串类型配置项。"""
-    value = get(key, default)
-    return str(value) if value is not None else default
+    value = get(key)
+    return str(value)
 
 
-def get_int(key: str, default: int = 0) -> int:
+def get_int(key: str) -> int:
     """获取整数类型配置项。"""
-    value = get(key, default)
+    value = get(key)
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     try:
         return int(value)
     except (TypeError, ValueError):
-        return default
+        raise TypeError(f"config key {key} is not an int: {value!r}") from None
 
 
-def get_float(key: str, default: float = 0.0) -> float:
+def get_float(key: str) -> float:
     """获取浮点数类型配置项。"""
-    value = get(key, default)
+    value = get(key)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
-        return default
+        raise TypeError(f"config key {key} is not a float: {value!r}") from None
 
 
-def get_bool(key: str, default: bool = False) -> bool:
+def get_bool(key: str) -> bool:
     """获取布尔类型配置项。"""
-    value = get(key, default)
+    value = get(key)
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ("true", "1", "yes")
-    return default
+        normalized = value.lower()
+        if normalized in ("true", "1", "yes"):
+            return True
+        if normalized in ("false", "0", "no"):
+            return False
+    raise TypeError(f"config key {key} is not a bool: {value!r}")
 
 
 def get_all() -> dict[str, Any]:
@@ -272,22 +277,26 @@ def get_masked_config() -> dict[str, Any]:
 def validate() -> list[str]:
     """校验配置必填项和值范围，返回错误信息列表（空列表表示通过）。"""
     errors: list[str] = []
+    _ensure_loaded()
+
+    def maybe_get(key: str) -> Any:
+        return _lookup(key, required=False)
 
     # 风控参数校验
-    pct = get("risk.max_position_pct")
+    pct = maybe_get("risk.max_position_pct")
     if pct is not None and (not isinstance(pct, (int, float)) or not 0 < pct <= 1):
         errors.append(f"risk.max_position_pct must be in (0, 1], got {pct}")
 
-    dd = get("risk.max_daily_drawdown")
+    dd = maybe_get("risk.max_daily_drawdown")
     if dd is not None and (not isinstance(dd, (int, float)) or not 0 < dd <= 1):
         errors.append(f"risk.max_daily_drawdown must be in (0, 1], got {dd}")
 
-    amount = get("risk.max_order_amount")
+    amount = maybe_get("risk.max_order_amount")
     if amount is not None and (not isinstance(amount, (int, float)) or amount <= 0):
         errors.append(f"risk.max_order_amount must be positive, got {amount}")
 
     # 券商路径校验（仅在有配置时校验）
-    broker_path = get("broker.xtquant.path")
+    broker_path = maybe_get("broker.xtquant.path")
     if broker_path and not Path(broker_path).exists():
         errors.append(f"broker.xtquant.path does not exist: {broker_path}")
 

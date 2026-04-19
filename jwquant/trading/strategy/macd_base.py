@@ -23,7 +23,7 @@ class BaseMACDStrategy(BaseStrategy):
     ):
         super().__init__(name, params)
 
-        strategy_config = get_strategy_config(name, {})
+        strategy_config = get_strategy_config(name)
         if params:
             strategy_config.update(params)
 

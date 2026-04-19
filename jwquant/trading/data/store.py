@@ -44,8 +44,8 @@ class LocalDataStore:
         base_path: str | Path | None = None,
         fmt: str | None = None,
     ) -> None:
-        self.base_path = Path(base_path or get("data.store.path", "./data")).expanduser()
-        self.fmt: StoreFormat = self._normalize_format(fmt or get("data.store.format", "csv"))
+        self.base_path = Path(base_path or get("data.store.path")).expanduser()
+        self.fmt: StoreFormat = self._normalize_format(fmt or get("data.store.format"))
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod

@@ -133,14 +133,12 @@ def get_logger(
 # ---------------------------------------------------------------------------
 
 def _read_log_config() -> tuple[bool, bool, str]:
-    """从 config 模块读取日志配置，失败时使用默认值。"""
-    try:
-        from jwquant.common import config
-        enable_file = config.get_bool("log.enable_file", True)
-        enable_json = config.get_bool("log.enable_json", False)
-        log_dir = config.get_str("log.log_dir", "logs")
-    except Exception:
-        enable_file, enable_json, log_dir = True, False, "logs"
+    """从 config 模块读取日志配置。"""
+    from jwquant.common import config
+
+    enable_file = config.get_bool("log.enable_file")
+    enable_json = config.get_bool("log.enable_json")
+    log_dir = config.get_str("log.log_dir")
     return enable_file, enable_json, log_dir
 
 

@@ -36,7 +36,7 @@ class TushareDataSource:
     token: str | None = None
 
     def __post_init__(self) -> None:
-        self.token = self.token or get("data.tushare.token", "")
+        self.token = self.token or get("data.tushare.token")
         if not self.token:
             raise ValueError("missing tushare token: please set data.tushare.token in config")
         ts.set_token(self.token)

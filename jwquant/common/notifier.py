@@ -317,24 +317,24 @@ class NotificationRouter:
             from jwquant.common import config
 
             # 速率限制
-            if config.get_bool("notification.rate_limit_enabled", True):
-                limit = config.get_int("notification.max_messages_per_minute", 10)
+            if config.get_bool("notification.rate_limit_enabled"):
+                limit = config.get_int("notification.max_messages_per_minute")
                 self._rate_limiter = RateLimiter(limit)
 
             # 路由规则
             self._routing = {
-                "INFO": config.get("notification.routing.INFO") or ["wechat"],
-                "WARNING": config.get("notification.routing.WARNING") or ["wechat", "dingtalk"],
-                "ERROR": config.get("notification.routing.ERROR") or ["wechat", "dingtalk", "email"],
-                "CRITICAL": config.get("notification.routing.CRITICAL") or ["wechat", "dingtalk", "email"],
+                "INFO": list(config.get("notification.routing.INFO")),
+                "WARNING": list(config.get("notification.routing.WARNING")),
+                "ERROR": list(config.get("notification.routing.ERROR")),
+                "CRITICAL": list(config.get("notification.routing.CRITICAL")),
             }
 
             # 初始化各渠道
-            enabled = config.get("notification.channels") or []
+            enabled = list(config.get("notification.channels"))
 
             if "wechat" in enabled:
                 self._channels["wechat"] = WeChatNotifier(
-                    provider=config.get_str("notification.wechat.provider", "serverchan"),
+                    provider=config.get_str("notification.wechat.provider"),
                     token=config.get_str("notification.wechat.token"),
                 )
 
@@ -347,12 +347,12 @@ class NotificationRouter:
             if "email" in enabled:
                 self._channels["email"] = EmailNotifier(
                     smtp_server=config.get_str("notification.email.smtp_server"),
-                    smtp_port=config.get_int("notification.email.smtp_port", 587),
+                    smtp_port=config.get_int("notification.email.smtp_port"),
                     username=config.get_str("notification.email.username"),
                     password=config.get_str("notification.email.password"),
                     from_addr=config.get_str("notification.email.from_addr"),
-                    to_addrs=config.get("notification.email.to_addrs") or [],
-                    use_tls=config.get_bool("notification.email.use_tls", True),
+                    to_addrs=list(config.get("notification.email.to_addrs")),
+                    use_tls=config.get_bool("notification.email.use_tls"),
                 )
         except Exception as exc:
             logger.error("Failed to initialize notification router: %s", exc)
@@ -428,7 +428,7 @@ def send_notification(
     # 检查通知是否启用
     try:
         from jwquant.common import config
-        if not config.get_bool("notification.enabled", False):
+        if not config.get_bool("notification.enabled"):
             return {}
     except Exception:
         pass

@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from jwquant.common.types import Bar, Order, OrderType, OrderStatus, Signal, SignalType
+from jwquant.common.types import Bar, Direction, Order, OrderType, OrderStatus, RiskEvent, Signal, SignalType
 from jwquant.trading.backtest.broker import SimBroker
 from jwquant.trading.backtest.market_rules import build_market_rules
 from jwquant.trading.backtest.order import build_order_from_signal
@@ -54,8 +54,19 @@ class BacktestConfig:
     take_profit_pct: float = 0.0
     trailing_stop_pct: float = 0.0
     max_drawdown_pct: float = 0.0
+    buy_reject_threshold_pct: float = 0.0
+    sell_reject_threshold_pct: float = 0.0
+    limit_up_pct: float = 0.1
+    limit_down_pct: float = 0.1
     risk_conflict_policy: str = "priority_first"
     risk_rule_priorities: dict[str, int] | None = None
+
+
+@dataclass
+class PendingSignalIntent:
+    signal: Signal
+    quantity: int | None = None
+    offset: str | None = None
 
 
 class SimpleBacktester:
@@ -117,6 +128,7 @@ class SimpleBacktester:
         self._order_seq = 0
         self._rebalance_count = 0
         self._last_rebalance_key: tuple[Any, ...] | None = None
+        self._pending_signal_intents: dict[str, list[PendingSignalIntent]] = {}
 
     def _reset_runtime_state(self) -> None:
         self.portfolio = Portfolio(
@@ -128,6 +140,7 @@ class SimpleBacktester:
         self._order_seq = 0
         self._rebalance_count = 0
         self._last_rebalance_key = None
+        self._pending_signal_intents = {}
 
     @property
     def orders(self) -> list[Order]:
@@ -156,6 +169,7 @@ class SimpleBacktester:
         *,
         quantity: int | None = None,
         offset: str | None = None,
+        order_dt: datetime | None = None,
     ) -> Order | None:
         """根据信号创建最小订单对象。"""
         resolved_offset = offset or self.broker.resolve_order_offset(signal, self.portfolio)
@@ -170,6 +184,8 @@ class SimpleBacktester:
             order_id=f"bt-order-{self._order_seq}",
             offset=resolved_offset,
         )
+        if order_dt is not None:
+            order.dt = order_dt
         self.recorder.record_order(order)
         return order
 
@@ -206,6 +222,7 @@ class SimpleBacktester:
         order: Order,
         reference_price: float,
         latest_prices: dict[str, float],
+        previous_close: float | None = None,
     ) -> None:
         validation = self.risk_manager.validate_order(
             order=order,
@@ -220,15 +237,126 @@ class SimpleBacktester:
             order.status = OrderStatus.REJECTED
             return
 
+        price_guard_event = self._validate_stock_price_guard(
+            order=order,
+            reference_price=reference_price,
+            previous_close=previous_close,
+        )
+        if price_guard_event is not None:
+            self.recorder.record_risk_event(price_guard_event)
+            order.status = OrderStatus.REJECTED
+            return
+
         trade = self.broker.execute_order(order, reference_price, self.portfolio)
         if trade is not None:
             self.recorder.record_trade(trade)
 
-    def _execute_signal(self, signal: Signal, bar: Bar, latest_prices: dict[str, float]) -> None:
-        order = self.create_order(signal, bar.close)
-        self._submit_order(order=order, reference_price=bar.close, latest_prices=latest_prices)
+    def _queue_signal_intent(
+        self,
+        *,
+        signal: Signal,
+        quantity: int | None = None,
+        offset: str | None = None,
+    ) -> None:
+        intents = self._pending_signal_intents.setdefault(signal.code, [])
+        intents.append(
+            PendingSignalIntent(
+                signal=signal,
+                quantity=quantity,
+                offset=offset,
+            )
+        )
 
-    def _apply_bar_risk(self, *, dt: datetime, latest_prices: dict[str, float]) -> None:
+    def _execute_pending_signals_for_bar(
+        self,
+        *,
+        bar: Bar,
+        latest_prices: dict[str, float],
+        previous_close: float | None,
+    ) -> None:
+        intents = self._pending_signal_intents.pop(bar.code, [])
+        if not intents:
+            return
+
+        execution_prices = dict(latest_prices)
+        execution_prices[bar.code] = bar.open
+
+        for intent in intents:
+            order = self.create_order(
+                intent.signal,
+                bar.open,
+                quantity=intent.quantity,
+                offset=intent.offset,
+                order_dt=pd.Timestamp(bar.dt).to_pydatetime(),
+            )
+            self._submit_order(
+                order=order,
+                reference_price=bar.open,
+                latest_prices=execution_prices,
+                previous_close=previous_close,
+            )
+
+    def _validate_stock_price_guard(
+        self,
+        *,
+        order: Order,
+        reference_price: float,
+        previous_close: float | None,
+    ) -> RiskEvent | None:
+        if self.config.market != "stock":
+            return None
+        if previous_close is None or previous_close <= 0 or reference_price <= 0:
+            return None
+
+        pct_change = (float(reference_price) - float(previous_close)) / float(previous_close)
+        is_buy = order.direction == Direction.BUY
+        is_sell = order.direction == Direction.SELL
+
+        buy_threshold = max(float(self.config.buy_reject_threshold_pct), 0.0)
+        sell_threshold = max(float(self.config.sell_reject_threshold_pct), 0.0)
+        limit_up_pct = max(float(self.config.limit_up_pct), 0.0)
+        limit_down_pct = max(float(self.config.limit_down_pct), 0.0)
+
+        blocked_reason = None
+        if is_buy and limit_up_pct > 0 and pct_change >= limit_up_pct:
+            blocked_reason = f"涨幅达到涨停阈值 {limit_up_pct:.2%}"
+        elif is_buy and buy_threshold > 0 and pct_change >= buy_threshold:
+            blocked_reason = f"涨幅达到买入拦截阈值 {buy_threshold:.2%}"
+        elif is_sell and limit_down_pct > 0 and pct_change <= -limit_down_pct:
+            blocked_reason = f"跌幅达到跌停阈值 {-limit_down_pct:.2%}"
+        elif is_sell and sell_threshold > 0 and pct_change <= -sell_threshold:
+            blocked_reason = f"跌幅达到卖出拦截阈值 {-sell_threshold:.2%}"
+
+        if blocked_reason is None:
+            return None
+
+        return RiskEvent(
+            risk_type="PRICE_LIMIT_GUARD",
+            severity="WARNING",
+            code=order.code,
+            message=(
+                f"订单被价格约束拦截: {blocked_reason}, "
+                f"昨收={previous_close:.4f}, 当前价={reference_price:.4f}, 涨跌幅={pct_change:.2%}"
+            ),
+            dt=order.dt or datetime.now(),
+            action_taken="BLOCKED",
+            category="execution",
+            source="stock_price_guard",
+            metadata={
+                "previous_close": float(previous_close),
+                "reference_price": float(reference_price),
+                "pct_change": float(round(pct_change, 6)),
+                "direction": order.direction.value,
+            },
+        )
+
+    def _apply_bar_risk(
+        self,
+        *,
+        dt: datetime,
+        latest_prices: dict[str, float],
+        previous_closes: dict[str, float],
+    ) -> None:
         result = self.risk_manager.check_bar(
             dt=dt,
             portfolio=self.portfolio,
@@ -237,9 +365,7 @@ class SimpleBacktester:
         for risk_event in result.events:
             self.recorder.record_risk_event(risk_event)
         for signal in result.signals:
-            price = float(latest_prices.get(signal.code, signal.price))
-            order = self.create_order(signal, price)
-            self._submit_order(order=order, reference_price=price, latest_prices=latest_prices)
+            self._queue_signal_intent(signal=signal)
 
     def _rebalance_key(self, dt: pd.Timestamp) -> tuple[Any, ...]:
         frequency = str(self.config.rebalance_frequency).lower()
@@ -295,7 +421,7 @@ class SimpleBacktester:
         dt: datetime,
         target_weights: dict[str, float],
         latest_prices: dict[str, float],
-    ) -> list[Order]:
+    ) -> list[PendingSignalIntent]:
         total_equity = self.portfolio.calculate_equity(latest_prices)
         if total_equity <= 0:
             return []
@@ -340,7 +466,9 @@ class SimpleBacktester:
                     signal_type=SignalType.SELL,
                     target_weight=target_weight,
                 )
-                sell_orders.append(self.create_order(signal, price, quantity=quantity, offset="close_long"))
+                sell_orders.append(
+                    PendingSignalIntent(signal=signal, quantity=quantity, offset="close_long")
+                )
             else:
                 signal = self._build_rebalance_signal(
                     code=code,
@@ -349,15 +477,18 @@ class SimpleBacktester:
                     signal_type=SignalType.BUY,
                     target_weight=target_weight,
                 )
-                buy_orders.append(self.create_order(signal, price, quantity=quantity, offset="open_long"))
+                buy_orders.append(
+                    PendingSignalIntent(signal=signal, quantity=quantity, offset="open_long")
+                )
 
-        return [order for order in sell_orders + buy_orders if order is not None]
+        return sell_orders + buy_orders
 
     def _maybe_rebalance(
         self,
         *,
         dt: datetime,
         latest_prices: dict[str, float],
+        previous_closes: dict[str, float],
     ) -> None:
         if self.config.rebalance_frequency == "none":
             return
@@ -380,13 +511,17 @@ class SimpleBacktester:
         for risk_event in risk_events:
             self.recorder.record_risk_event(risk_event)
 
-        orders = self._build_rebalance_orders(
+        signal_intents = self._build_rebalance_orders(
             dt=dt,
             target_weights=adjusted_weights,
             latest_prices=latest_prices,
         )
-        for order in orders:
-            self._submit_order(order=order, reference_price=latest_prices[order.code], latest_prices=latest_prices)
+        for intent in signal_intents:
+            self._queue_signal_intent(
+                signal=intent.signal,
+                quantity=intent.quantity,
+                offset=intent.offset,
+            )
 
         self._rebalance_count += 1
         self._last_rebalance_key = rebalance_key
@@ -449,6 +584,7 @@ class SimpleBacktester:
         strategy.update_asset(self.portfolio.to_asset())
         current_trading_day = None
         latest_prices: dict[str, float] = {}
+        previous_closes: dict[str, float] = {}
 
         for dt, group in sorted_data.groupby("dt", sort=False):
             bars = [self._build_bar(row) for _, row in group.iterrows()]
@@ -456,20 +592,29 @@ class SimpleBacktester:
             current_trading_day = self._settle_trading_day(bar, current_trading_day)
 
             for bar in bars:
+                previous_close = previous_closes.get(bar.code)
+                self._execute_pending_signals_for_bar(
+                    bar=bar,
+                    latest_prices=dict(latest_prices),
+                    previous_close=previous_close,
+                )
                 latest_prices[bar.code] = bar.close
                 signal = strategy.on_bar(bar)
                 if signal:
-                    self._execute_signal(signal, bar, dict(latest_prices))
+                    self._queue_signal_intent(signal=signal)
                 strategy.update_asset(self.portfolio.to_asset(dict(latest_prices)))
+                previous_closes[bar.code] = bar.close
 
             self._apply_bar_risk(
                 dt=pd.Timestamp(dt).to_pydatetime(),
                 latest_prices=dict(latest_prices),
+                previous_closes=dict(previous_closes),
             )
 
             self._maybe_rebalance(
                 dt=pd.Timestamp(dt).to_pydatetime(),
                 latest_prices=dict(latest_prices),
+                previous_closes=dict(previous_closes),
             )
             strategy.update_asset(self.portfolio.to_asset(dict(latest_prices)))
             self._record_market_state(dt=pd.Timestamp(dt).to_pydatetime(), latest_prices=dict(latest_prices))

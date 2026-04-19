@@ -60,12 +60,7 @@ class ThreeMACrossStrategy(BaseStrategy):
         super().__init__(name, params)
         
         # 从配置文件获取策略参数
-        strategy_config = get_strategy_config(name, {
-            'short_ma_period': 5,
-            'medium_ma_period': 10,
-            'long_ma_period': 20,
-            'min_history': 30
-        })
+        strategy_config = get_strategy_config(name)
         
         # 合并传入的参数（优先级更高）
         if params:

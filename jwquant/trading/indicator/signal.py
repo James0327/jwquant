@@ -481,12 +481,12 @@ def _resolve_macd_indicator_config(
     if not get_all():
         load_config(extra=["config/strategies.toml"])
 
-    indicator_config = get("indicators.macd", {}) or {}
-    resolved_fast = fast_period if fast_period is not None else int(indicator_config.get("fast_period", 12))
-    resolved_slow = slow_period if slow_period is not None else int(indicator_config.get("slow_period", 26))
-    resolved_signal = signal_period if signal_period is not None else int(indicator_config.get("signal_period", 9))
+    indicator_config = get("indicators.macd")
+    resolved_fast = fast_period if fast_period is not None else int(indicator_config["fast_period"])
+    resolved_slow = slow_period if slow_period is not None else int(indicator_config["slow_period"])
+    resolved_signal = signal_period if signal_period is not None else int(indicator_config["signal_period"])
     resolved_window = (
-        divergence_window if divergence_window is not None else int(indicator_config.get("divergence_window", 2))
+        divergence_window if divergence_window is not None else int(indicator_config["divergence_window"])
     )
     return resolved_fast, resolved_slow, resolved_signal, resolved_window
 

@@ -18,16 +18,22 @@ import time
 import os
 import sys
 
-from xtquant import xttrader
-from xtquant.xttrader import XtQuantTrader
-from xtquant.xttype import StockAccount
-
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jwquant.common.config import Config
+from jwquant.trading.execution import (
+    XtQuantAccountConfig,
+    XtQuantConnectError,
+    XtQuantConfigError,
+    XtQuantImportError,
+    XtQuantSession,
+    XtQuantTradeCallbackBase,
+    build_account_diagnostics,
+    connect_xtquant_account,
+)
 
 
-class SimpleTradeCallback(xttrader.XtQuantTraderCallback):
+class SimpleTradeCallback(XtQuantTradeCallbackBase):
     """简单交易回调类，用于监听连接和账户状态"""
 
     def on_disconnected(self):
@@ -44,95 +50,55 @@ def login(qmt_path, account_id, max_retry=5, retry_interval=3):
     :param account_id: 资金账号
     :param max_retry: 最大重试次数
     :param retry_interval: 重试间隔（秒）
-    :return: (trader, account)
+    :return: XtQuantSession | None
     """
-    # 自动生成session_id（基于时间戳）
     session_id = int(time.time())
-
     print(f"正在尝试连接 QMT: {qmt_path}")
     print(f"会话ID: {session_id}")
-    trader = XtQuantTrader(qmt_path, session_id)
+    try:
+        session = connect_xtquant_account(
+            XtQuantAccountConfig(
+                market="stock",
+                path=qmt_path,
+                account_id=account_id,
+                account_type="STOCK",
+                max_retry=max_retry,
+                retry_interval=retry_interval,
+            ),
+            callback=SimpleTradeCallback(label="股票账户"),
+            session_id=session_id,
+        )
+    except (XtQuantImportError, XtQuantConfigError, XtQuantConnectError) as exc:
+        print(f"QMT 客户端连接或订阅失败: {exc}")
+        return None
 
-    # 注册回调
-    callback = SimpleTradeCallback()
-    trader.register_callback(callback)
-
-    # 启动交易线程
-    trader.start()
-
-    # 建立连接
-    connect_result = trader.connect()
-    if connect_result == 0:
-        print("QMT 客户端连接成功")
-    else:
-        print(f"QMT 客户端连接失败，错误码: {connect_result}")
-        return None, None
-
-    # 订阅股票账户（带重试机制）
-    account = StockAccount(account_id, account_type='STOCK')
-
-    for retry_count in range(1, max_retry + 1):
-        if retry_count > 1:
-            print(f"\n第 {retry_count}/{max_retry} 次订阅尝试...")
-            time.sleep(retry_interval)
-
-        subscribe_result = trader.subscribe(account)
-
-        if subscribe_result == 0:
-            if retry_count == 1:
-                print(f"账户 {account_id} 订阅成功")
-            else:
-                print(f"账户 {account_id} 重试订阅成功！")
-            return trader, account
-        else:
-            if retry_count == 1:
-                print(f"账户 {account_id} 订阅失败，错误码: {subscribe_result}")
-                print("正在尝试延长等待时间后重试...")
-            else:
-                print(f"第 {retry_count} 次订阅失败，错误码: {subscribe_result}")
-
-            if retry_count == max_retry:
-                print(f"\n已达到最大重试次数 ({max_retry})，订阅失败")
-                return trader, None
-
-    return trader, None
+    print("QMT 客户端连接成功")
+    print(f"账户 {account_id} 订阅成功")
+    return session
 
 
-def query_account_info(trader, account):
+def query_account_info(session: XtQuantSession | None):
     """
     查询账户基本信息（资产、持仓）
     """
-    if not trader or not account:
+    if session is None:
         print("查询失败：交易对象或账户未就绪")
         return
 
-    print("\n--- 账户资产信息 ---")
-    asset = trader.query_stock_asset(account)
-    if asset:
-        print(f"账号: {asset.account_id}")
-        print(f"可用资金: {asset.cash:.2f}")
-        print(f"冻结资金: {asset.frozen_cash:.2f}")
-        print(f"持仓市值: {asset.market_value:.2f}")
-        print(f"总资产: {asset.total_asset:.2f}")
-    else:
-        print("无法获取资产信息")
-
-    print("\n--- 账户持仓信息 ---")
-    positions = trader.query_stock_positions(account)
-    if positions:
-        for pos in positions:
-            print(f"代码: {pos.stock_code}, 持仓: {pos.volume}, 可用: {pos.can_use_volume}, 成本价: {pos.open_price:.3f}")
-    else:
-        print("当前无持仓或无法获取持仓信息")
+    diagnostics = build_account_diagnostics(session)
+    for line in diagnostics.asset_lines:
+        print(line)
+    for line in diagnostics.position_lines:
+        print(line)
 
 
-def logout(trader):
+def logout(session: XtQuantSession | None):
     """
     退出登录并停止交易线程
     """
-    if trader:
+    if session:
         print("\n正在退出登录并停止服务...")
-        trader.stop()
+        session.stop()
         print("服务已停止")
     else:
         print("交易对象不存在，无需退出")
@@ -150,14 +116,14 @@ if __name__ == "__main__":
     print(f"路径是否存在: {os.path.exists(QMT_PATH)}")
 
     # 1. 实现账号连接
-    xt_trader, xt_account = login(QMT_PATH, ACCOUNT_ID)
+    session = login(QMT_PATH, ACCOUNT_ID)
 
-    if xt_trader and xt_account:
+    if session:
         # 等待一会儿确保数据同步
         time.sleep(1)
 
         # 2. 实现查询账户信息
-        query_account_info(xt_trader, xt_account)
+        query_account_info(session)
 
         # 保持运行一下，观察回调
         time.sleep(2)
@@ -170,4 +136,4 @@ if __name__ == "__main__":
         print("4. 检查网络连接是否正常")
 
     # 3. 实现退出登录
-    logout(xt_trader)
+    logout(session)

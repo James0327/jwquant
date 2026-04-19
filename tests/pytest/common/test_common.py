@@ -107,7 +107,8 @@ account_id = "12345"
         config.load_config(f)
         assert config.get("broker.xtquant.path") == "/tmp/test"
         assert config.get("broker.xtquant.account_id") == "12345"
-        assert config.get("nonexistent", "default") == "default"
+        with pytest.raises(KeyError, match="missing config key: nonexistent"):
+            config.get("nonexistent")
 
     def test_multi_file_merge(self, tmp_path):
         from jwquant.common import config
@@ -168,11 +169,14 @@ enabled = true
         assert config.get_int("project.version") == 1
         assert config.get_float("project.ratio") == 0.5
         assert config.get_bool("project.enabled") is True
-        # defaults
-        assert config.get_str("missing") == ""
-        assert config.get_int("missing") == 0
-        assert config.get_float("missing") == 0.0
-        assert config.get_bool("missing") is False
+        with pytest.raises(KeyError, match="missing config key: missing"):
+            config.get_str("missing")
+        with pytest.raises(KeyError, match="missing config key: missing"):
+            config.get_int("missing")
+        with pytest.raises(KeyError, match="missing config key: missing"):
+            config.get_float("missing")
+        with pytest.raises(KeyError, match="missing config key: missing"):
+            config.get_bool("missing")
 
     def test_masked_config(self, tmp_path):
         from jwquant.common import config
@@ -283,10 +287,12 @@ class TestLog:
 
     def test_category_loggers(self):
         self._clear_loggers()
+        from jwquant.common import config
         from jwquant.common.log import (
             get_trade_logger, get_strategy_logger,
             get_agent_logger, get_system_logger,
         )
+        config.reload_config()
         assert get_trade_logger().name == "jwquant.trade"
         assert get_strategy_logger().name == "jwquant.strategy"
         assert get_agent_logger().name == "jwquant.agent"

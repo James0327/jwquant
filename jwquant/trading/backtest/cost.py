@@ -29,11 +29,13 @@ class BacktestCostConfig:
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Any] | None = None) -> "BacktestCostConfig":
-        payload = dict(mapping or {})
+        if mapping is None:
+            raise KeyError("missing backtest cost config mapping")
+        payload = dict(mapping)
         return cls(
-            commission_rate=float(payload.get("commission_rate", 0.0003)),
-            slippage=float(payload.get("slippage", 0.0001)),
-            max_order_value=float(payload.get("max_order_value", 100000.0)),
-            futures_margin_rate=float(payload.get("futures_margin_rate", 0.12)),
-            futures_contract_multiplier=float(payload.get("futures_contract_multiplier", 300.0)),
+            commission_rate=float(payload["commission_rate"]),
+            slippage=float(payload["slippage"]),
+            max_order_value=float(payload["max_order_value"]),
+            futures_margin_rate=float(payload["futures_margin_rate"]),
+            futures_contract_multiplier=float(payload["futures_contract_multiplier"]),
         )

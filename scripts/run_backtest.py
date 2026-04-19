@@ -17,7 +17,13 @@ if str(ROOT) not in sys.path:
 
 from jwquant.trading.strategy.registry import get_strategy_registry, create_registered_strategy
 from jwquant.common.config import Config, load_config
-from jwquant.trading.backtest import BacktestConfig, SimpleBacktester, write_backtest_report_html
+from jwquant.trading.backtest import (
+    BacktestConfig,
+    SimpleBacktester,
+    build_backtest_report_output_path,
+    resolve_unique_report_path,
+    write_backtest_report_html,
+)
 from jwquant.trading.backtest.cost import BacktestCostConfig
 from jwquant.trading.data.feed import DataFeed
 from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
@@ -106,7 +112,7 @@ def parse_portfolio_weights(raw_weights: str | None, codes: list[str]) -> dict[s
 
 def load_backtest_risk_defaults() -> RiskConfig:
     config = Config()
-    return RiskConfig.from_mapping(config.get("backtest.risk", {}))
+    return RiskConfig.from_mapping(config.get("backtest.risk"))
 
 
 def load_backtest_cost_defaults() -> BacktestCostConfig:
@@ -118,7 +124,7 @@ def load_backtest_cost_defaults() -> BacktestCostConfig:
     - 单笔金额上限仍先在 broker 层约束下单量
     """
     config = Config()
-    return BacktestCostConfig.from_mapping(config.get("backtest.cost", {}))
+    return BacktestCostConfig.from_mapping(config.get("backtest.cost"))
 
 
 def load_backtest_data(feed: DataFeed, args) -> pd.DataFrame:
@@ -186,7 +192,7 @@ def load_backtest_data(feed: DataFeed, args) -> pd.DataFrame:
 
 def main():
     """主函数"""
-    load_config()
+    load_config(extra=["config/strategies.toml"])
     # 风控默认值和金额默认值分开读取：
     # - risk 负责“是否允许下单/是否触发退出”
     # - cost 负责“成交会花多少钱/一笔最多按多少钱估量”
@@ -219,8 +225,13 @@ def main():
     parser.add_argument('--take-profit-pct', type=float, default=risk_defaults.take_profit_pct, help='统一固定止盈比例，0 表示关闭')
     parser.add_argument('--trailing-stop-pct', type=float, default=risk_defaults.trailing_stop_pct, help='统一移动止损比例，0 表示关闭')
     parser.add_argument('--max-drawdown-pct', type=float, default=risk_defaults.max_drawdown_pct, help='统一最大回撤止损比例，0 表示关闭')
+    parser.add_argument('--buy-reject-threshold-pct', type=float, default=risk_defaults.buy_reject_threshold_pct, help='股票买入拦截阈值；相对昨收涨幅达到该比例后不再买入，0 表示关闭')
+    parser.add_argument('--sell-reject-threshold-pct', type=float, default=risk_defaults.sell_reject_threshold_pct, help='股票卖出拦截阈值；相对昨收跌幅达到该比例后不再卖出，0 表示关闭')
+    parser.add_argument('--limit-up-pct', type=float, default=risk_defaults.limit_up_pct, help='股票涨停阈值；相对昨收涨幅达到该比例后禁止买入')
+    parser.add_argument('--limit-down-pct', type=float, default=risk_defaults.limit_down_pct, help='股票跌停阈值；相对昨收跌幅达到该比例后禁止卖出')
     parser.add_argument('--risk-conflict-policy', default=risk_defaults.conflict_policy, choices=['priority_first'], help='统一风控冲突仲裁策略')
     parser.add_argument('--report-html', default=None, help='输出 HTML 回测风险报告路径')
+    parser.add_argument('--report-dir', default=None, help='HTML 回测报告输出目录；未传入时使用配置 backtest.report.dir')
     parser.add_argument('--futures-margin-rate', type=float, default=cost_defaults.futures_margin_rate, help='期货保证金率，用于估算占用保证金和可开仓手数')
     parser.add_argument('--futures-contract-multiplier', type=float, default=cost_defaults.futures_contract_multiplier, help='期货合约乘数，用于估算名义金额和盈亏')
     
@@ -271,6 +282,10 @@ def main():
             take_profit_pct=args.take_profit_pct,
             trailing_stop_pct=args.trailing_stop_pct,
             max_drawdown_pct=args.max_drawdown_pct,
+            buy_reject_threshold_pct=args.buy_reject_threshold_pct,
+            sell_reject_threshold_pct=args.sell_reject_threshold_pct,
+            limit_up_pct=args.limit_up_pct,
+            limit_down_pct=args.limit_down_pct,
             risk_conflict_policy=args.risk_conflict_policy,
             risk_rule_priorities=dict(risk_defaults.rule_priorities),
             futures_margin_rate=args.futures_margin_rate,
@@ -305,9 +320,23 @@ def main():
     print(f"风险动作统计: {results['report']['summary']['risk_by_action']}")
     print(f"总手续费: {results['total_commission']:,.2f}")
 
+    report_start = data['dt'].min().strftime('%Y-%m-%d')
+    report_end = data['dt'].max().strftime('%Y-%m-%d')
     if args.report_html:
-        output_path = write_backtest_report_html(results, args.report_html)
-        print(f"HTML 报告: {output_path}")
+        output_path = write_backtest_report_html(results, resolve_unique_report_path(args.report_html))
+    else:
+        config = Config()
+        report_dir = args.report_dir or config.get("backtest.report.dir")
+        output_path = write_backtest_report_html(
+            results,
+            build_backtest_report_output_path(
+                output_dir=report_dir,
+                strategy_name=args.strategy,
+                start_date=report_start,
+                end_date=report_end,
+            ),
+        )
+    print(f"HTML 报告: {output_path}")
     order_status_counts = results["report"]["order_status_counts"]
     if order_status_counts:
         summary = ", ".join(f"{status}={count}" for status, count in sorted(order_status_counts.items()))

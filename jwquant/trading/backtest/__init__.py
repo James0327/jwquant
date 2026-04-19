@@ -7,7 +7,13 @@ from jwquant.trading.backtest.market_rules import FuturesMarketRules, StockMarke
 from jwquant.trading.backtest.order import build_order_from_signal
 from jwquant.trading.backtest.portfolio import Portfolio, PositionState
 from jwquant.trading.backtest.recorder import BacktestRecorder
-from jwquant.trading.backtest.report import render_backtest_report_html, write_backtest_report_html
+from jwquant.trading.backtest.report import (
+    build_backtest_report_filename,
+    build_backtest_report_output_path,
+    render_backtest_report_html,
+    resolve_unique_report_path,
+    write_backtest_report_html,
+)
 from jwquant.trading.backtest.risk import PortfolioRiskManager
 from jwquant.trading.backtest.stats import calculate_performance
 
@@ -19,7 +25,10 @@ __all__ = [
     "Portfolio",
     "PositionState",
     "BacktestRecorder",
+    "build_backtest_report_filename",
+    "build_backtest_report_output_path",
     "render_backtest_report_html",
+    "resolve_unique_report_path",
     "write_backtest_report_html",
     "PortfolioRiskManager",
     "StockMarketRules",

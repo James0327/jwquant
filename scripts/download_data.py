@@ -61,15 +61,15 @@ def load_download_defaults() -> dict[str, object]:
     - resume (bool): 是否启用基于本地最新时间的断点续传功能，默认True
     
     返回值:
-      dict[str, object]: 包含上述4个配置项的字典，若配置不存在则使用内置默认值
+      dict[str, object]: 包含上述4个配置项的字典，缺少配置项时抛异常
     """
     config = Config()
-    payload = dict(config.get("data.download", {}))
+    payload = dict(config.get("data.download"))
     return {
-        "window": str(payload.get("window", "month")),
-        "chunk_retries": int(payload.get("chunk_retries", 2)),
-        "retry_interval": float(payload.get("retry_interval", 1.0)),
-        "resume": bool(payload.get("resume", True)),
+        "window": str(payload["window"]),
+        "chunk_retries": int(payload["chunk_retries"]),
+        "retry_interval": float(payload["retry_interval"]),
+        "resume": bool(payload["resume"]),
     }
 
 

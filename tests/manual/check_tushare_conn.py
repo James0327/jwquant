@@ -33,7 +33,7 @@ def get_tushare_pro():
     """初始化 Tushare Pro API 连接。"""
     logger.info("=" * 60)
     logger.info("开始初始化 Tushare Pro API 连接...")
-    token = os.getenv("JWQUANT_TUSHARE_TOKEN") or get_config("data.tushare.token", "")
+    token = os.getenv("JWQUANT_TUSHARE_TOKEN") or get_config("data.tushare.token")
     if not token:
         raise ValueError("缺少 Tushare Token，请设置 JWQUANT_TUSHARE_TOKEN 或 config/settings.toml 的 data.tushare.token")
     ts.set_token(token)
