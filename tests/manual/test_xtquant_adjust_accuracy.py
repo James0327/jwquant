@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-手动测试：验证 XtQuant 原始行情 + 复权因子 计算得到的前复权，是否与 XtQuant 直接返回的前复权完全一致。
+手动测试：验证 XtQuant 原始行情 + 复权因子 计算得到的前/后复权，是否与 XtQuant 直接返回的 qfq/hfq 完全一致。
 
 测试目标：
 1. 下载并落库大秦铁路（601006.SH）2022-01-01 ~ 2025-12-31 的无复权日线
 2. 下载对应复权因子
-3. 基于“无复权 + 复权因子”计算前复权
-4. 直接从 XtQuant 再下载一份前复权日线
+3. 基于“无复权 + 复权因子”分别计算 qfq / hfq
+4. 直接从 XtQuant 再下载一份 qfq / hfq 日线
 5. 逐日逐列比对，输出差异明细
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ logger = get_logger("test_xtquant_adjust_accuracy")
 
 
 class TestXtQuantAdjustAccuracy(unittest.TestCase):
-    """验证券商无复权数据经复权因子计算后的前复权，与券商直下前复权是否一致。"""
+    """验证券商无复权数据经复权因子计算后的 qfq/hfq，与券商直下复权行情是否一致。"""
 
     CODE = "601006.SH"
     NAME = "大秦铁路"
@@ -45,8 +45,9 @@ class TestXtQuantAdjustAccuracy(unittest.TestCase):
     START = "2022-01-01"
     END = "2025-12-31"
     STORE_FORMAT = "sqlite"
-    DIFF_OUTPUT = Path("reports/manual/xtquant_adjust_accuracy_diff.csv")
-    MISSING_DT_OUTPUT = Path("reports/manual/xtquant_adjust_accuracy_missing_dates.csv")
+    ADJ_MODES = ("qfq", "hfq")
+    DIFF_OUTPUT_TEMPLATE = "xtquant_adjust_accuracy_{adj}_diff.csv"
+    MISSING_DT_OUTPUT_TEMPLATE = "xtquant_adjust_accuracy_{adj}_missing_dates.csv"
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -64,19 +65,26 @@ class TestXtQuantAdjustAccuracy(unittest.TestCase):
             cls.temp_dir.name,
         )
 
-        cls.sync_result = sync_xtquant_data(
-            code=cls.CODE,
-            start=cls.START,
-            end=cls.END,
-            market=cls.MARKET,
-            timeframe=cls.TIMEFRAME,
-            store=cls.store,
-            source=cls.source,
-            incremental=False,
-            download_window="month",
-            chunk_retries=2,
-            retry_interval=1.0,
-        )
+        try:
+            cls.sync_result = sync_xtquant_data(
+                code=cls.CODE,
+                start=cls.START,
+                end=cls.END,
+                market=cls.MARKET,
+                timeframe=cls.TIMEFRAME,
+                store=cls.store,
+                source=cls.source,
+                incremental=False,
+                download_window="month",
+                chunk_retries=2,
+                retry_interval=1.0,
+            )
+        except Exception as exc:
+            cls.temp_dir.cleanup()
+            raise unittest.SkipTest(
+                "XtQuant 运行环境不可用，无法执行本地 qfq/hfq 准确性验证。"
+                f"请确认 QMT/XtQuant datacenter 已正确安装并可访问。原始错误: {exc}"
+            ) from exc
 
         cls.raw_bars = cls.feed.get_bars(
             code=cls.CODE,
@@ -92,53 +100,92 @@ class TestXtQuantAdjustAccuracy(unittest.TestCase):
             end=cls.END,
             market=cls.MARKET,
         )
-        cls.calculated_qfq = cls.adjuster.adjust(cls.raw_bars, cls.factors, adj="qfq")
-        cls.feed_qfq = cls.feed.get_bars(
-            code=cls.CODE,
-            start=cls.START,
-            end=cls.END,
-            timeframe=cls.TIMEFRAME,
-            market=cls.MARKET,
-            adj="qfq",
-        )
-        cls.broker_qfq = cls.source.download_bars(
-            code=cls.CODE,
-            start=cls.START,
-            end=cls.END,
-            timeframe=cls.TIMEFRAME,
-            market=cls.MARKET,
-            adj="qfq",
-        )
-        cls.calculated_dt_set = set(pd.to_datetime(cls.calculated_qfq["dt"]))
-        cls.feed_dt_set = set(pd.to_datetime(cls.feed_qfq["dt"]))
-        cls.broker_dt_set = set(pd.to_datetime(cls.broker_qfq["dt"]))
-        cls.missing_in_broker = sorted(cls.calculated_dt_set - cls.broker_dt_set)
-        cls.missing_in_calculated = sorted(cls.broker_dt_set - cls.calculated_dt_set)
-        cls.missing_in_feed = sorted(cls.broker_dt_set - cls.feed_dt_set)
-        cls.comparison = cls._build_comparison_frame()
-        cls.difference_rows = cls.comparison[cls.comparison["has_diff"]].copy()
-        cls._write_diff_report()
+        cls.results = {}
+        for adj in cls.ADJ_MODES:
+            cls.results[adj] = cls._prepare_adj_result(adj)
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.temp_dir.cleanup()
 
     @classmethod
-    def _build_comparison_frame(cls) -> pd.DataFrame:
-        calculated = cls.calculated_qfq[["dt", *PRICE_COLUMNS]].copy()
+    def _prepare_adj_result(cls, adj: str) -> dict[str, object]:
+        calculated = cls.adjuster.adjust(cls.raw_bars, cls.factors, adj=adj)
+        feed_bars = cls.feed.get_bars(
+            code=cls.CODE,
+            start=cls.START,
+            end=cls.END,
+            timeframe=cls.TIMEFRAME,
+            market=cls.MARKET,
+            adj=adj,
+        )
+        broker_bars = cls.source.download_bars(
+            code=cls.CODE,
+            start=cls.START,
+            end=cls.END,
+            timeframe=cls.TIMEFRAME,
+            market=cls.MARKET,
+            adj=adj,
+        )
+        calculated_dt_set = set(pd.to_datetime(calculated["dt"]))
+        feed_dt_set = set(pd.to_datetime(feed_bars["dt"]))
+        broker_dt_set = set(pd.to_datetime(broker_bars["dt"]))
+        missing_in_broker = sorted(calculated_dt_set - broker_dt_set)
+        missing_in_calculated = sorted(broker_dt_set - calculated_dt_set)
+        missing_in_feed = sorted(broker_dt_set - feed_dt_set)
+        comparison = cls._build_comparison_frame(
+            calculated=calculated,
+            feed_bars=feed_bars,
+            broker_bars=broker_bars,
+        )
+        difference_rows = comparison[comparison["has_diff"]].copy()
+        diff_output = Path("reports/manual") / cls.DIFF_OUTPUT_TEMPLATE.format(adj=adj)
+        missing_output = Path("reports/manual") / cls.MISSING_DT_OUTPUT_TEMPLATE.format(adj=adj)
+        cls._write_diff_report(
+            adj=adj,
+            difference_rows=difference_rows,
+            missing_in_broker=missing_in_broker,
+            missing_in_calculated=missing_in_calculated,
+            missing_in_feed=missing_in_feed,
+            diff_output=diff_output,
+            missing_output=missing_output,
+        )
+        return {
+            "adj": adj,
+            "calculated": calculated,
+            "feed_bars": feed_bars,
+            "broker_bars": broker_bars,
+            "comparison": comparison,
+            "difference_rows": difference_rows,
+            "missing_in_broker": missing_in_broker,
+            "missing_in_calculated": missing_in_calculated,
+            "missing_in_feed": missing_in_feed,
+            "diff_output": diff_output,
+            "missing_output": missing_output,
+        }
+
+    @classmethod
+    def _build_comparison_frame(
+        cls,
+        *,
+        calculated: pd.DataFrame,
+        feed_bars: pd.DataFrame,
+        broker_bars: pd.DataFrame,
+    ) -> pd.DataFrame:
+        calculated = calculated[["dt", *PRICE_COLUMNS]].copy()
         calculated = calculated.rename(columns={column: f"calc_{column}" for column in PRICE_COLUMNS})
 
-        broker = cls.broker_qfq[["dt", *PRICE_COLUMNS]].copy()
+        broker = broker_bars[["dt", *PRICE_COLUMNS]].copy()
         broker = broker.rename(columns={column: f"broker_{column}" for column in PRICE_COLUMNS})
 
-        feed_qfq = cls.feed_qfq[["dt", *PRICE_COLUMNS]].copy()
-        feed_qfq = feed_qfq.rename(columns={column: f"feed_{column}" for column in PRICE_COLUMNS})
+        feed_bars = feed_bars[["dt", *PRICE_COLUMNS]].copy()
+        feed_bars = feed_bars.rename(columns={column: f"feed_{column}" for column in PRICE_COLUMNS})
 
         raw = cls.raw_bars[["dt", *PRICE_COLUMNS]].copy()
         raw = raw.rename(columns={column: f"raw_{column}" for column in PRICE_COLUMNS})
 
         merged = raw.merge(calculated, on="dt", how="inner")
-        merged = merged.merge(feed_qfq, on="dt", how="inner")
+        merged = merged.merge(feed_bars, on="dt", how="inner")
         merged = merged.merge(broker, on="dt", how="inner")
         merged = merged.sort_values("dt").reset_index(drop=True)
 
@@ -161,14 +208,25 @@ class TestXtQuantAdjustAccuracy(unittest.TestCase):
         return merged
 
     @classmethod
-    def _write_diff_report(cls) -> None:
-        cls.DIFF_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        cls.difference_rows.to_csv(cls.DIFF_OUTPUT, index=False, encoding="utf-8-sig")
+    def _write_diff_report(
+        cls,
+        *,
+        adj: str,
+        difference_rows: pd.DataFrame,
+        missing_in_broker: list[pd.Timestamp],
+        missing_in_calculated: list[pd.Timestamp],
+        missing_in_feed: list[pd.Timestamp],
+        diff_output: Path,
+        missing_output: Path,
+    ) -> None:
+        del adj
+        diff_output.parent.mkdir(parents=True, exist_ok=True)
+        difference_rows.to_csv(diff_output, index=False, encoding="utf-8-sig")
         missing_rows = []
-        missing_rows.extend({"source": "broker_qfq", "dt": dt} for dt in cls.missing_in_broker)
-        missing_rows.extend({"source": "calculated_qfq", "dt": dt} for dt in cls.missing_in_calculated)
-        missing_rows.extend({"source": "feed_qfq", "dt": dt} for dt in cls.missing_in_feed)
-        pd.DataFrame(missing_rows).to_csv(cls.MISSING_DT_OUTPUT, index=False, encoding="utf-8-sig")
+        missing_rows.extend({"source": "broker", "dt": dt} for dt in missing_in_broker)
+        missing_rows.extend({"source": "calculated", "dt": dt} for dt in missing_in_calculated)
+        missing_rows.extend({"source": "feed", "dt": dt} for dt in missing_in_feed)
+        pd.DataFrame(missing_rows).to_csv(missing_output, index=False, encoding="utf-8-sig")
 
     def test_sync_download_should_persist_raw_bars_and_factors(self) -> None:
         self.assertFalse(self.raw_bars.empty, "无复权原始行情为空，说明下载或落库失败")
@@ -176,84 +234,92 @@ class TestXtQuantAdjustAccuracy(unittest.TestCase):
         self.assertGreater(len(self.raw_bars), 0)
         self.assertGreater(len(self.factors), 0)
 
-    def test_feed_qfq_should_equal_manual_adjustment(self) -> None:
-        pd.testing.assert_frame_equal(
-            self.calculated_qfq[["dt", *PRICE_COLUMNS]].reset_index(drop=True),
-            self.feed_qfq[["dt", *PRICE_COLUMNS]].reset_index(drop=True),
-            check_dtype=False,
-            check_exact=True,
-        )
+    def test_feed_adjusted_should_equal_manual_adjustment(self) -> None:
+        for adj, result in self.results.items():
+            with self.subTest(adj=adj):
+                pd.testing.assert_frame_equal(
+                    result["calculated"][["dt", *PRICE_COLUMNS]].reset_index(drop=True),
+                    result["feed_bars"][["dt", *PRICE_COLUMNS]].reset_index(drop=True),
+                    check_dtype=False,
+                    check_exact=True,
+                )
 
-    def test_qfq_date_sets_should_match(self) -> None:
-        self.assertEqual(
-            self.missing_in_broker,
-            [],
-            f"手工计算前复权中存在券商前复权缺失日期，详见 {self.MISSING_DT_OUTPUT.absolute()}",
-        )
-        self.assertEqual(
-            self.missing_in_calculated,
-            [],
-            f"券商前复权中存在手工计算前复权缺失日期，详见 {self.MISSING_DT_OUTPUT.absolute()}",
-        )
-        self.assertEqual(
-            self.missing_in_feed,
-            [],
-            f"DataFeed 前复权中存在券商前复权缺失日期，详见 {self.MISSING_DT_OUTPUT.absolute()}",
-        )
+    def test_adjusted_date_sets_should_match(self) -> None:
+        for adj, result in self.results.items():
+            with self.subTest(adj=adj):
+                self.assertEqual(
+                    result["missing_in_broker"],
+                    [],
+                    f"{adj} 手工计算结果存在券商复权行情缺失日期，详见 {result['missing_output'].absolute()}",
+                )
+                self.assertEqual(
+                    result["missing_in_calculated"],
+                    [],
+                    f"{adj} 券商复权行情存在手工计算结果缺失日期，详见 {result['missing_output'].absolute()}",
+                )
+                self.assertEqual(
+                    result["missing_in_feed"],
+                    [],
+                    f"{adj} DataFeed 复权行情存在券商复权行情缺失日期，详见 {result['missing_output'].absolute()}",
+                )
 
-    def test_manual_adjusted_qfq_should_equal_broker_qfq(self) -> None:
-        mismatch_count = len(self.difference_rows)
-        if mismatch_count:
-            preview = self.difference_rows[
-                [
-                    "dt",
-                    "raw_close",
-                    "calc_close",
-                    "broker_close",
-                    "diff_close",
-                    "calc_open",
-                    "broker_open",
-                    "diff_open",
-                    "calc_high",
-                    "broker_high",
-                    "diff_high",
-                    "calc_low",
-                    "broker_low",
-                    "diff_low",
-                ]
-            ].head(20)
-            logger.error("发现 %s 条前复权差异，样例:\n%s", mismatch_count, preview.to_string(index=False))
+    def test_manual_adjusted_should_equal_broker_adjusted(self) -> None:
+        for adj, result in self.results.items():
+            with self.subTest(adj=adj):
+                mismatch_count = len(result["difference_rows"])
+                if mismatch_count:
+                    preview = result["difference_rows"][
+                        [
+                            "dt",
+                            "raw_close",
+                            "calc_close",
+                            "broker_close",
+                            "diff_close",
+                            "calc_open",
+                            "broker_open",
+                            "diff_open",
+                            "calc_high",
+                            "broker_high",
+                            "diff_high",
+                            "calc_low",
+                            "broker_low",
+                            "diff_low",
+                        ]
+                    ].head(20)
+                    logger.error("发现 %s %s 差异，样例:\n%s", mismatch_count, adj, preview.to_string(index=False))
 
-        self.assertEqual(
-            mismatch_count,
-            0,
-            (
-                f"发现 {mismatch_count} 条前复权差异，"
-                f"差异明细已输出到 {self.DIFF_OUTPUT.absolute()}"
-            ),
-        )
+                self.assertEqual(
+                    mismatch_count,
+                    0,
+                    (
+                        f"发现 {mismatch_count} 条 {adj} 差异，"
+                        f"差异明细已输出到 {result['diff_output'].absolute()}"
+                    ),
+                )
 
     def test_print_summary(self) -> None:
-        print("\n=== XtQuant 前复权准确性验证摘要 ===")
+        print("\n=== XtQuant 本地复权准确性验证摘要 ===")
         print(f"标的: {self.NAME} ({self.CODE})")
         print(f"时间范围: {self.START} ~ {self.END}")
         print(f"原始行情条数: {len(self.raw_bars)}")
         print(f"复权因子条数: {len(self.factors)}")
-        print(f"手工计算前复权条数: {len(self.calculated_qfq)}")
-        print(f"券商直下前复权条数: {len(self.broker_qfq)}")
-        print(f"差异条数: {len(self.difference_rows)}")
-        print(f"券商缺失日期数: {len(self.missing_in_broker)}")
-        print(f"手工计算缺失日期数: {len(self.missing_in_calculated)}")
-        print(f"DataFeed 缺失日期数: {len(self.missing_in_feed)}")
-        if not self.difference_rows.empty:
-            print(f"差异文件: {self.DIFF_OUTPUT.absolute()}")
-            top_diff = self.difference_rows.nlargest(10, "max_abs_diff")[
-                ["dt", "max_abs_diff", "diff_open", "diff_high", "diff_low", "diff_close"]
-            ]
-            print("最大差异样例:")
-            print(top_diff.to_string(index=False))
-        if self.missing_in_broker or self.missing_in_calculated or self.missing_in_feed:
-            print(f"缺失日期文件: {self.MISSING_DT_OUTPUT.absolute()}")
+        for adj, result in self.results.items():
+            print(f"\n[{adj}]")
+            print(f"手工计算复权条数: {len(result['calculated'])}")
+            print(f"券商直下复权条数: {len(result['broker_bars'])}")
+            print(f"差异条数: {len(result['difference_rows'])}")
+            print(f"券商缺失日期数: {len(result['missing_in_broker'])}")
+            print(f"手工计算缺失日期数: {len(result['missing_in_calculated'])}")
+            print(f"DataFeed 缺失日期数: {len(result['missing_in_feed'])}")
+            if not result["difference_rows"].empty:
+                print(f"差异文件: {result['diff_output'].absolute()}")
+                top_diff = result["difference_rows"].nlargest(10, "max_abs_diff")[
+                    ["dt", "max_abs_diff", "diff_open", "diff_high", "diff_low", "diff_close"]
+                ]
+                print("最大差异样例:")
+                print(top_diff.to_string(index=False))
+            if result["missing_in_broker"] or result["missing_in_calculated"] or result["missing_in_feed"]:
+                print(f"缺失日期文件: {result['missing_output'].absolute()}")
 
 
 if __name__ == "__main__":

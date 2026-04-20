@@ -39,7 +39,9 @@ class DataFeed:
         bars = self.store.load_bars(code=code, start=start, end=end, timeframe=timeframe, market=market)
         if market != "stock" or not adj or str(adj).lower() == "none" or bars.empty:
             return bars
-        factors = self.store.load_adjust_factors(code=code, start=start, end=end, market=market)
+        # 复权因子在除权事件日才变化，计算 start 日价格时往往需要 start 之前最近一次生效因子。
+        # 因此这里不能把因子查询窗口也截成 [start, end]，否则会丢掉前向填充所需的历史基准因子。
+        factors = self.store.load_adjust_factors(code=code, start=None, end=end, market=market)
         return self.adjuster.adjust(bars, factors, adj=adj)
 
     def get_latest_bar(

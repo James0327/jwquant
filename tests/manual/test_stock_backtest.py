@@ -287,6 +287,7 @@ def generate_report(
     results,
     report_filename=None,
     report_dir=None,
+    chart_mode=None,
     strategy_name=None,
     backtest_start=None,
     backtest_end=None,
@@ -298,6 +299,7 @@ def generate_report(
         results: 回测结果字典
         report_filename: 报表文件名；未传入时按统一规则自动生成
         report_dir: 报表输出目录；未传入时从配置读取
+        chart_mode: 图表模式；未传入时从配置读取，支持 simple/full
         strategy_name: 策略名称；未传入时从配置读取
         backtest_start: 回测开始日期；未传入时从配置读取
         backtest_end: 回测结束日期；未传入时从配置读取
@@ -306,6 +308,8 @@ def generate_report(
     config = Config()
     if report_dir is None:
         report_dir = config.get("test.report.dir")
+    if chart_mode is None:
+        chart_mode = config.get("test.report.chart_mode")
     if strategy_name is None:
         strategy_name = config.get("test.strategy_name")
     if backtest_start is None:
@@ -334,7 +338,7 @@ def generate_report(
     try:
         # 生成并保存HTML报表
         logger.info("正在生成并保存HTML报表...")
-        report_path = write_backtest_report_html(results, report_path)
+        report_path = write_backtest_report_html(results, report_path, chart_mode=chart_mode)
         logger.info(f"保存报表到文件: {report_path.absolute()}")
 
         print(f"报表已保存到: {report_path.absolute()}")
@@ -351,6 +355,10 @@ def generate_report(
         sharpe_ratio = summary.get('sharpe_ratio', 0)
         win_rate = summary.get('win_rate', 0)
         total_trades = summary.get('total_trades', 0)
+        execution_timing = summary.get('execution_timing', '')
+        execution_price_model = summary.get('execution_price_model', '')
+        rejected_orders = summary.get('rejected_orders', 0)
+        price_guard_blocked_orders = summary.get('price_guard_blocked_orders', 0)
 
         print(f"总收益率: {total_return:.2%}")
         print(f"年化收益率: {annual_return:.2%}")
@@ -358,6 +366,10 @@ def generate_report(
         print(f"夏普比率: {sharpe_ratio:.2f}")
         print(f"胜率: {win_rate:.2%}")
         print(f"总交易次数: {total_trades}")
+        print(f"撮合时机: {execution_timing}")
+        print(f"成交价格模型: {execution_price_model}")
+        print(f"拒单数: {rejected_orders}")
+        print(f"价格阈值/涨跌停拦截数: {price_guard_blocked_orders}")
 
         # 记录关键指标到日志
         logger.info(f"回测完成 - 总收益率: {total_return:.2%}, 年化收益率: {annual_return:.2%}, 最大回撤: {max_drawdown:.2%}")

@@ -73,6 +73,41 @@ export JWQUANT_BROKER__XTQUANT__STOCK__ACCOUNT_ID="8880000000"
   - 留空表示当前不启用 Tushare 数据源
   - 建议通过环境变量提供真实值
 
+### `[data.akshare]`
+
+- `enabled`
+  - AkShare 数据源总开关
+  - 当前主要用于股票历史研究、补数和对账场景
+- `default_adjust`
+  - AkShare 默认复权方式
+  - 当前建议保持 `none`
+
+当前建议：
+
+- 不要把 `AkShare qfq/hfq` 作为统一回测复权主链来源
+- `AkShare none` 可用于研究与补数
+
+### `[data.source_policy.*]`
+
+这组配置用于定义不同场景下的数据源优先级。
+
+当前已经按以下维度组织：
+
+- 市场：`stock / futures`
+- 用途：`research / backtest / repair / reconciliation`
+- 周期分组：`daily / weekly / monthly / intraday`
+
+关键行为说明：
+
+- `download_data.py`
+  - 仍然是显式入口
+  - 不会自动按 `source policy` 改写调用方指定的 `--source`
+- `run_backtest.py`
+  - 本地缺数据时会按 `source policy` 尝试补数
+- `stock + backtest + qfq/hfq`
+  - 当前会在 policy 层自动过滤掉 `AkShare`
+  - 只允许支持统一复权主链的 source 参与候选
+
 ### `[data.store]`
 
 本地行情和因子存储配置。

@@ -64,6 +64,7 @@ class BacktestConfig:
 
 @dataclass
 class PendingSignalIntent:
+    signal_id: str
     signal: Signal
     quantity: int | None = None
     offset: str | None = None
@@ -126,6 +127,7 @@ class SimpleBacktester:
             risk_config=risk_config,
         )
         self._order_seq = 0
+        self._signal_seq = 0
         self._rebalance_count = 0
         self._last_rebalance_key: tuple[Any, ...] | None = None
         self._pending_signal_intents: dict[str, list[PendingSignalIntent]] = {}
@@ -138,6 +140,7 @@ class SimpleBacktester:
         self.recorder = BacktestRecorder()
         self.risk_manager.reset()
         self._order_seq = 0
+        self._signal_seq = 0
         self._rebalance_count = 0
         self._last_rebalance_key = None
         self._pending_signal_intents = {}
@@ -223,7 +226,7 @@ class SimpleBacktester:
         reference_price: float,
         latest_prices: dict[str, float],
         previous_close: float | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         validation = self.risk_manager.validate_order(
             order=order,
             reference_price=reference_price,
@@ -235,7 +238,9 @@ class SimpleBacktester:
             self.recorder.record_risk_event(risk_event)
         if validation.blocked:
             order.status = OrderStatus.REJECTED
-            return
+            reason = validation.events[0].message if validation.events else "订单被风控拦截"
+            reason_source = validation.events[0].source if validation.events else "risk_validation"
+            return {"status": order.status.value, "reason": reason, "reason_source": reason_source, "trade": None}
 
         price_guard_event = self._validate_stock_price_guard(
             order=order,
@@ -245,11 +250,23 @@ class SimpleBacktester:
         if price_guard_event is not None:
             self.recorder.record_risk_event(price_guard_event)
             order.status = OrderStatus.REJECTED
-            return
+            return {
+                "status": order.status.value,
+                "reason": price_guard_event.message,
+                "reason_source": price_guard_event.source,
+                "trade": None,
+            }
 
         trade = self.broker.execute_order(order, reference_price, self.portfolio)
         if trade is not None:
             self.recorder.record_trade(trade)
+            return {"status": order.status.value, "reason": "", "reason_source": "", "trade": trade}
+        reason = f"订单未成交，状态={order.status.value}"
+        return {"status": order.status.value, "reason": reason, "reason_source": "broker", "trade": None}
+
+    def _next_signal_id(self) -> str:
+        self._signal_seq += 1
+        return f"bt-signal-{self._signal_seq}"
 
     def _queue_signal_intent(
         self,
@@ -258,13 +275,32 @@ class SimpleBacktester:
         quantity: int | None = None,
         offset: str | None = None,
     ) -> None:
+        signal_id = self._next_signal_id()
         intents = self._pending_signal_intents.setdefault(signal.code, [])
         intents.append(
             PendingSignalIntent(
+                signal_id=signal_id,
                 signal=signal,
                 quantity=quantity,
                 offset=offset,
             )
+        )
+        self.recorder.record_signal(
+            {
+                "signal_id": signal_id,
+                "code": signal.code,
+                "signal_type": signal.signal_type.value,
+                "signal_dt": signal.dt,
+                "signal_price": signal.price,
+                "status": "pending",
+                "reason": signal.reason,
+                "reason_detail": signal.reason,
+                "reason_source": "",
+                "execution_dt": None,
+                "execution_price": None,
+                "order_id": "",
+                "order_status": "",
+            }
         )
 
     def _execute_pending_signals_for_bar(
@@ -289,11 +325,21 @@ class SimpleBacktester:
                 offset=intent.offset,
                 order_dt=pd.Timestamp(bar.dt).to_pydatetime(),
             )
-            self._submit_order(
+            outcome = self._submit_order(
                 order=order,
                 reference_price=bar.open,
                 latest_prices=execution_prices,
                 previous_close=previous_close,
+            )
+            self.recorder.update_signal_status(
+                intent.signal_id,
+                status="filled" if order.status == OrderStatus.FILLED else "rejected",
+                execution_dt=order.dt,
+                execution_price=float(bar.open),
+                order_id=order.order_id,
+                order_status=order.status.value,
+                reason=str(outcome.get("reason", "")),
+                reason_source=str(outcome.get("reason_source", "")),
             )
 
     def _validate_stock_price_guard(
@@ -534,7 +580,18 @@ class SimpleBacktester:
             position_snapshot=self.portfolio.snapshot_positions(),
         )
 
-    def _build_results(self, strategy: Any) -> dict[str, Any]:
+    def _finalize_pending_signals(self) -> None:
+        for intents in self._pending_signal_intents.values():
+            for intent in intents:
+                self.recorder.update_signal_status(
+                    intent.signal_id,
+                    status="expired",
+                    reason="无下一根Bar，信号未执行",
+                    reason_source="no_next_bar",
+                )
+        self._pending_signal_intents = {}
+
+    def _build_results(self, strategy: Any, market_data: pd.DataFrame) -> dict[str, Any]:
         results = calculate_performance(
             equity_curve=self.recorder.equity_curve,
             initial_capital=self.initial_capital,
@@ -549,16 +606,32 @@ class SimpleBacktester:
             self.recorder.equity_curve[-1] if self.recorder.equity_curve else self.initial_capital
         )
         report = self.recorder.build_report_payload()
+        if not market_data.empty:
+            chart_columns = [column for column in ["code", "dt", "open", "high", "low", "close"] if column in market_data.columns]
+            report["market_data"] = (
+                market_data[chart_columns]
+                .copy()
+                .to_dict(orient="records")
+            )
+        else:
+            report["market_data"] = []
+        order_status_counts = report.get("order_status_counts", {})
+        risk_by_source = report.get("risk_by_source", {})
+        price_guard_blocked_count = int(risk_by_source.get("stock_price_guard", 0))
         report["summary"] = {
             "strategy_name": results["strategy_name"],
+            "execution_timing": "T日收盘生成信号，T+1日开盘撮合",
+            "execution_price_model": "T+1_open +/- slippage",
             "initial_capital": self.initial_capital,
             "final_equity": results["final_equity"],
             "total_orders": results["total_orders"],
             "total_trades": results["total_trades"],
             "total_rebalances": results["total_rebalances"],
             "risk_event_count": results["risk_event_count"],
+            "rejected_orders": int(order_status_counts.get("rejected", 0)),
+            "price_guard_blocked_orders": price_guard_blocked_count,
             "risk_by_category": report.get("risk_by_category", {}),
-            "risk_by_source": report.get("risk_by_source", {}),
+            "risk_by_source": risk_by_source,
             "risk_by_action": report.get("risk_by_action", {}),
             "total_return": results["total_return"],
             "annual_return": results["annual_return"],
@@ -619,4 +692,5 @@ class SimpleBacktester:
             strategy.update_asset(self.portfolio.to_asset(dict(latest_prices)))
             self._record_market_state(dt=pd.Timestamp(dt).to_pydatetime(), latest_prices=dict(latest_prices))
 
-        return self._build_results(strategy)
+        self._finalize_pending_signals()
+        return self._build_results(strategy, sorted_data)

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from jwquant.trading.data.sources.capabilities import SourceCapabilities, normalize_market_alias
+
 
 _FREQ_MAP = {
     "1d": "d",
@@ -36,6 +38,16 @@ _ADJ_MAP = {
 @dataclass
 class BaostockDataSource:
     """Baostock 历史行情数据源。"""
+
+    _CAPABILITIES = SourceCapabilities(
+        source_name="baostock",
+        supported_markets=("stock",),
+        supported_timeframes=("1d", "1w", "1m"),
+        supports_adjusted_bars=True,
+        supports_adjust_factors=False,
+        supports_main_contract=False,
+        data_grade="B",
+    )
 
     def download_bars(
         self,
@@ -89,6 +101,13 @@ class BaostockDataSource:
             ["code", "dt"]
         ).reset_index(drop=True)
 
+    def get_capabilities(self) -> SourceCapabilities:
+        return self._CAPABILITIES
+
+    def infer_market(self, code: str, market: str | None = None) -> str:
+        del code
+        return self._normalize_market(market)
+
     @staticmethod
     def _normalize_code(code: str) -> str:
         if "." not in code:
@@ -117,11 +136,4 @@ class BaostockDataSource:
 
     @staticmethod
     def _normalize_market(market: str | None) -> str:
-        if market is None:
-            return "stock"
-        normalized = str(market).strip().lower()
-        if normalized in {"stock", "stocks", "equity", "a_share", "ashare"}:
-            return "stock"
-        if normalized in {"future", "futures"}:
-            return "futures"
-        raise ValueError(f"unsupported baostock market: {market}")
+        return normalize_market_alias(market, default="stock")

@@ -2,7 +2,7 @@
 下载历史行情数据到本地
 
 核心功能：
-- 从第三方数据源（xtquant/tushare/baostock）下载历史K线数据
+- 从第三方数据源（xtquant/akshare/tushare/baostock）下载历史K线数据
 - 支持股票和期货市场
 - 支持多种时间周期 (1d/1w/1m/1h/5m 等)
 - 支持按月/季/年分段下载，实现大数据量的断点续传
@@ -37,6 +37,7 @@ import argparse
 from datetime import datetime
 
 from jwquant.common.config import Config, load_config
+from jwquant.trading.data.sources.akshare_src import AkShareDataSource
 from jwquant.trading.data.sources.baostock_src import BaostockDataSource
 from jwquant.trading.data.sources.tushare_src import TushareDataSource
 from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
@@ -85,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     
     可选参数 (基础设置):
       --end, -e: 结束日期，默认当前日期
-      --source: 数据源，支持 xtquant/tushare/baostock，默认 xtquant
+      --source: 数据源，支持 xtquant/akshare/tushare/baostock，默认 xtquant
       --market: 市场类型，支持 stock/futures，默认根据代码推断
       --timeframe, -t: 时间周期，如 1d/1w/1m/1h/5m，默认 1d
     
@@ -108,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--code", "-c", required=True, help="代码，如 000001.SZ 或 IF2406.IF")
     parser.add_argument("--start", "-s", required=True, help="开始日期，如 2020-01-01")
     parser.add_argument("--end", "-e", default=datetime.now().strftime("%Y-%m-%d"), help="结束日期")
-    parser.add_argument("--source", default="xtquant", choices=["xtquant", "tushare", "baostock"], help="数据源")
+    parser.add_argument("--source", default="xtquant", choices=["xtquant", "akshare", "tushare", "baostock"], help="数据源")
     parser.add_argument("--market", default=None, choices=["stock", "futures"], help="市场类型，不传则按代码推断")
     parser.add_argument("--timeframe", "-t", default="1d", help="周期，如 1d/1w/1m")
     parser.add_argument("--adj", default="none", choices=["none"],
@@ -154,6 +155,7 @@ def build_source(name: str):
     参数:
       name (str): 数据源名称，支持：
         - 'xtquant': 讯投(XtQuant)数据源，支持股票和期货，推荐使用
+        - 'akshare': AkShare 数据源，主要用于A股历史研究与补数
         - 'tushare': TuShare数据源，主要用于A股数据
         - 'baostock': 宝股数据源，备选方案
     
@@ -165,6 +167,8 @@ def build_source(name: str):
     """
     if name == "xtquant":
         return XtQuantDataSource()
+    if name == "akshare":
+        return AkShareDataSource()
     if name == "tushare":
         return TushareDataSource()
     if name == "baostock":

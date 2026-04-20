@@ -11,6 +11,7 @@ import pandas as pd
 import tushare as ts
 
 from jwquant.common.config import get
+from jwquant.trading.data.sources.capabilities import SourceCapabilities, normalize_market_alias
 
 
 _FREQ_MAP = {
@@ -34,6 +35,16 @@ class TushareDataSource:
     """Tushare 历史行情数据源。"""
 
     token: str | None = None
+
+    _CAPABILITIES = SourceCapabilities(
+        source_name="tushare",
+        supported_markets=("stock",),
+        supported_timeframes=("1d", "1w", "1m"),
+        supports_adjusted_bars=True,
+        supports_adjust_factors=False,
+        supports_main_contract=False,
+        data_grade="B",
+    )
 
     def __post_init__(self) -> None:
         self.token = self.token or get("data.tushare.token")
@@ -72,6 +83,13 @@ class TushareDataSource:
 
         return self._normalize_dataframe(df)
 
+    def get_capabilities(self) -> SourceCapabilities:
+        return self._CAPABILITIES
+
+    def infer_market(self, code: str, market: str | None = None) -> str:
+        del code
+        return self._normalize_market(market)
+
     @staticmethod
     def _normalize_timeframe(timeframe: str) -> str:
         normalized = _FREQ_MAP.get(timeframe.strip().lower())
@@ -99,11 +117,4 @@ class TushareDataSource:
 
     @staticmethod
     def _normalize_market(market: str | None) -> str:
-        if market is None:
-            return "stock"
-        normalized = str(market).strip().lower()
-        if normalized in {"stock", "stocks", "equity", "a_share", "ashare"}:
-            return "stock"
-        if normalized in {"future", "futures"}:
-            return "futures"
-        raise ValueError(f"unsupported tushare market: {market}")
+        return normalize_market_alias(market, default="stock")

@@ -31,6 +31,12 @@ XtQuant 数据源：
   - 下载原始 K 线
   - 不下载股票复权因子
 
+补充说明：
+
+- `download_data.py` 是显式原始入口
+- 调用方需要自己指定 `--source`
+- 当前不会按 `source policy` 自动改写下载源
+
 ## 3. 存储层
 
 存储实现：
@@ -73,8 +79,16 @@ XtQuant 数据源：
 行为：
 
 - 优先从本地 `DataFeed` 读取
-- 本地无数据时自动尝试 XtQuant 下载
+- 本地无数据时按 `source policy` 自动尝试补数
 - 下载失败才回退样例数据
+
+当前默认策略：
+
+- `backtest + adj=none`
+  - 允许 `XtQuant / AkShare / Tushare / Baostock` 参与候选补数
+- `backtest + adj=qfq/hfq`
+  - 当前只允许 `XtQuant`
+  - 原因是系统主链依赖“原始行情 + 复权因子 + 动态复权”，而 `AkShare qfq/hfq` 已在阶段四评估中被判定不进入统一复权主链
 
 ## 6. 检查脚本
 

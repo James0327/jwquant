@@ -20,7 +20,9 @@ class BacktestRecorder:
     dates: list[datetime] = field(default_factory=list)
     equity_records: list[dict[str, Any]] = field(default_factory=list)
     position_snapshots: list[dict[str, dict[str, float]]] = field(default_factory=list)
+    position_records: list[dict[str, Any]] = field(default_factory=list)
     risk_events: list[RiskEvent] = field(default_factory=list)
+    signal_records: list[dict[str, Any]] = field(default_factory=list)
 
     def record_order(self, order: Order) -> None:
         self.orders.append(order)
@@ -30,6 +32,39 @@ class BacktestRecorder:
 
     def record_risk_event(self, event: RiskEvent) -> None:
         self.risk_events.append(event)
+
+    def record_signal(self, signal_record: dict[str, Any]) -> None:
+        self.signal_records.append(dict(signal_record))
+
+    def update_signal_status(
+        self,
+        signal_id: str,
+        *,
+        status: str,
+        execution_dt: datetime | None = None,
+        execution_price: float | None = None,
+        order_id: str = "",
+        order_status: str = "",
+        reason: str = "",
+        reason_source: str = "",
+    ) -> None:
+        for record in self.signal_records:
+            if str(record.get("signal_id", "")) != str(signal_id):
+                continue
+            record["status"] = status
+            if execution_dt is not None:
+                record["execution_dt"] = execution_dt
+            if execution_price is not None:
+                record["execution_price"] = execution_price
+            if order_id:
+                record["order_id"] = order_id
+            if order_status:
+                record["order_status"] = order_status
+            if reason:
+                record["reason_detail"] = reason
+            if reason_source:
+                record["reason_source"] = reason_source
+            break
 
     def record_bar_close(
         self,
@@ -48,6 +83,17 @@ class BacktestRecorder:
             }
         )
         self.position_snapshots.append(position_snapshot)
+        for code, snapshot in position_snapshot.items():
+            self.position_records.append(
+                {
+                    "dt": dt,
+                    "code": code,
+                    "quantity": float(snapshot.get("quantity", 0.0)),
+                    "sellable_quantity": float(snapshot.get("sellable_quantity", 0.0)),
+                    "avg_price": float(snapshot.get("avg_price", 0.0)),
+                    "margin": float(snapshot.get("margin", 0.0)),
+                }
+            )
 
     def build_report_payload(self) -> dict[str, Any]:
         order_status_counts: dict[str, int] = {}
@@ -71,6 +117,7 @@ class BacktestRecorder:
             "start_dt": self.dates[0] if self.dates else None,
             "end_dt": self.dates[-1] if self.dates else None,
             "equity_records": list(self.equity_records),
+            "position_records": list(self.position_records),
             "latest_positions": self.position_snapshots[-1] if self.position_snapshots else {},
             "order_status_counts": order_status_counts,
             "risk_by_type": risk_by_type,
@@ -92,6 +139,7 @@ class BacktestRecorder:
                 for event in self.risk_events
             ],
             "trade_records": list(self.trades),
+            "signal_records": list(self.signal_records),
             "order_records": [
                 {
                     "order_id": order.order_id,

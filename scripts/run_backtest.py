@@ -25,10 +25,14 @@ from jwquant.trading.backtest import (
     write_backtest_report_html,
 )
 from jwquant.trading.backtest.cost import BacktestCostConfig
+from jwquant.trading.data import load_source_policy
 from jwquant.trading.data.feed import DataFeed
+from jwquant.trading.data.sources.akshare_src import AkShareDataSource
+from jwquant.trading.data.sources.baostock_src import BaostockDataSource
+from jwquant.trading.data.sources.tushare_src import TushareDataSource
 from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
 from jwquant.trading.data.store import LocalDataStore
-from jwquant.trading.data.sync import sync_xtquant_data
+from jwquant.trading.data.sync import sync_market_data
 from jwquant.trading.risk import RiskConfig
 
 
@@ -127,6 +131,19 @@ def load_backtest_cost_defaults() -> BacktestCostConfig:
     return BacktestCostConfig.from_mapping(config.get("backtest.cost"))
 
 
+def build_market_data_source(name: str):
+    normalized = str(name).strip().lower()
+    if normalized == "xtquant":
+        return XtQuantDataSource()
+    if normalized == "akshare":
+        return AkShareDataSource()
+    if normalized == "tushare":
+        return TushareDataSource()
+    if normalized == "baostock":
+        return BaostockDataSource()
+    raise ValueError(f"unsupported backtest data source: {name}")
+
+
 def load_backtest_data(feed: DataFeed, args) -> pd.DataFrame:
     codes = parse_codes(args.code)
 
@@ -155,33 +172,55 @@ def load_backtest_data(feed: DataFeed, args) -> pd.DataFrame:
             frames.append(bars)
 
     if missing_codes:
-        print(f"本地数据为空，尝试通过 XtQuant 自动下载: {', '.join(missing_codes)}")
+        policy = load_source_policy(
+            market=args.market,
+            use_case="backtest",
+            timeframe=args.timeframe,
+            adj=args.adj,
+        )
+        candidate_sources = policy.sources
+        if not candidate_sources:
+            print(f"本地数据为空，但当前 source policy 未给出可用补数源: {', '.join(missing_codes)}")
+        else:
+            print(
+                f"本地数据为空，按 source policy 尝试自动补数: "
+                f"{', '.join(missing_codes)}；候选源={', '.join(candidate_sources)}"
+            )
         store = LocalDataStore()
-        source = XtQuantDataSource()
         for code in missing_codes:
-            try:
-                sync_xtquant_data(
-                    code=code,
-                    start=start,
-                    end=end,
-                    market=args.market,
-                    timeframe=args.timeframe,
-                    store=store,
-                    source=source,
-                    incremental=True,
-                )
-                bars = feed.get_bars(
-                    code=code,
-                    start=start,
-                    end=end,
-                    timeframe=args.timeframe,
-                    market=args.market,
-                    adj=args.adj,
-                )
-                if not bars.empty:
-                    frames.append(bars)
-            except RuntimeError as exc:
-                print(f"{code} 自动下载失败: {exc}")
+            downloaded = False
+            for source_name in candidate_sources:
+                source = build_market_data_source(source_name)
+                try:
+                    sync_market_data(
+                        code=code,
+                        start=start,
+                        end=end,
+                        market=args.market,
+                        timeframe=args.timeframe,
+                        store=store,
+                        source=source,
+                        incremental=True,
+                    )
+                    bars = feed.get_bars(
+                        code=code,
+                        start=start,
+                        end=end,
+                        timeframe=args.timeframe,
+                        market=args.market,
+                        adj=args.adj,
+                    )
+                    if not bars.empty:
+                        print(f"{code} 自动补数成功，使用 source={source_name}")
+                        frames.append(bars)
+                        downloaded = True
+                        break
+                except RuntimeError as exc:
+                    print(f"{code} 通过 {source_name} 自动下载失败: {exc}")
+                except Exception as exc:
+                    print(f"{code} 通过 {source_name} 自动下载异常: {exc}")
+            if not downloaded:
+                print(f"{code} 未能通过 source policy 候选源补数成功")
 
     if not frames:
         print("回退到样例数据。")
@@ -232,6 +271,7 @@ def main():
     parser.add_argument('--risk-conflict-policy', default=risk_defaults.conflict_policy, choices=['priority_first'], help='统一风控冲突仲裁策略')
     parser.add_argument('--report-html', default=None, help='输出 HTML 回测风险报告路径')
     parser.add_argument('--report-dir', default=None, help='HTML 回测报告输出目录；未传入时使用配置 backtest.report.dir')
+    parser.add_argument('--report-chart-mode', default=None, choices=['simple', 'full'], help='HTML 报表价格图模式；未传入时使用配置 backtest.report.chart_mode')
     parser.add_argument('--futures-margin-rate', type=float, default=cost_defaults.futures_margin_rate, help='期货保证金率，用于估算占用保证金和可开仓手数')
     parser.add_argument('--futures-contract-multiplier', type=float, default=cost_defaults.futures_contract_multiplier, help='期货合约乘数，用于估算名义金额和盈亏')
     
@@ -315,6 +355,10 @@ def main():
     print(f"订单次数: {results['total_orders']}")
     print(f"再平衡次数: {results['total_rebalances']}")
     print(f"风险事件数: {results['risk_event_count']}")
+    print(f"撮合时机: {results['report']['summary']['execution_timing']}")
+    print(f"成交价格模型: {results['report']['summary']['execution_price_model']}")
+    print(f"拒单数: {results['report']['summary']['rejected_orders']}")
+    print(f"价格阈值/涨跌停拦截数: {results['report']['summary']['price_guard_blocked_orders']}")
     print(f"风险分类统计: {results['report']['summary']['risk_by_category']}")
     print(f"风险来源统计: {results['report']['summary']['risk_by_source']}")
     print(f"风险动作统计: {results['report']['summary']['risk_by_action']}")
@@ -322,10 +366,15 @@ def main():
 
     report_start = data['dt'].min().strftime('%Y-%m-%d')
     report_end = data['dt'].max().strftime('%Y-%m-%d')
+    config = Config()
+    report_chart_mode = args.report_chart_mode or config.get("backtest.report.chart_mode")
     if args.report_html:
-        output_path = write_backtest_report_html(results, resolve_unique_report_path(args.report_html))
+        output_path = write_backtest_report_html(
+            results,
+            resolve_unique_report_path(args.report_html),
+            chart_mode=report_chart_mode,
+        )
     else:
-        config = Config()
         report_dir = args.report_dir or config.get("backtest.report.dir")
         output_path = write_backtest_report_html(
             results,
@@ -335,6 +384,7 @@ def main():
                 start_date=report_start,
                 end_date=report_end,
             ),
+            chart_mode=report_chart_mode,
         )
     print(f"HTML 报告: {output_path}")
     order_status_counts = results["report"]["order_status_counts"]

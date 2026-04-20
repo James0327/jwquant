@@ -10,6 +10,12 @@ import time
 
 import pandas as pd
 
+from jwquant.trading.data.sources.capabilities import (
+    SourceCapabilities,
+    infer_market_from_code,
+    normalize_market_alias,
+)
+
 
 _FREQ_MAP = {
     "1m": "1m",
@@ -47,6 +53,16 @@ class XtQuantDataSource:
     data_dir: str | None = None
     max_retries: int = 2
     retry_interval: float = 1.0
+
+    _CAPABILITIES = SourceCapabilities(
+        source_name="xtquant",
+        supported_markets=("stock", "futures"),
+        supported_timeframes=("1m", "5m", "15m", "30m", "60m", "1d", "1w", "1mth"),
+        supports_adjusted_bars=True,
+        supports_adjust_factors=True,
+        supports_main_contract=True,
+        data_grade="A",
+    )
 
     def download_bars(
         self,
@@ -113,6 +129,12 @@ class XtQuantDataSource:
             f"xtquant download failed after {self.max_retries} attempts for "
             f"code={code}, market={normalized_market}, timeframe={timeframe}"
         ) from last_error
+
+    def get_capabilities(self) -> SourceCapabilities:
+        return self._CAPABILITIES
+
+    def infer_market(self, code: str, market: str | None = None) -> str:
+        return self._normalize_market(code, market)
 
     def download_adjust_factors(
         self,
@@ -208,18 +230,8 @@ class XtQuantDataSource:
     @staticmethod
     def _normalize_market(code: str, market: str | None = None) -> str:
         if market:
-            normalized = str(market).strip().lower()
-            if normalized in {"stock", "stocks", "equity", "a_share", "ashare"}:
-                return "stock"
-            if normalized in {"future", "futures"}:
-                return "futures"
-            raise ValueError(f"unsupported xtquant market: {market}")
-
-        upper_code = code.upper()
-        stock_suffixes = (".SH", ".SZ", ".BJ")
-        if upper_code.endswith(stock_suffixes):
-            return "stock"
-        return "futures"
+            return normalize_market_alias(market)
+        return infer_market_from_code(code)
 
     @staticmethod
     def _build_field_list(market: str) -> list[str]:

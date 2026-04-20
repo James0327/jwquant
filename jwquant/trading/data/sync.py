@@ -25,10 +25,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Protocol, runtime_checkable
 
 import pandas as pd
 
+from jwquant.trading.data.sources.capabilities import MarketDataSource
 from jwquant.trading.data.sources.xtquant_src import XtQuantDataSource
 from jwquant.trading.data.store import LocalDataStore
 
@@ -59,18 +59,15 @@ class SyncResult:
           print(f"新增 {result.rows} 条K线，{result.factor_rows} 条复权因子")
     """
 
-
-@runtime_checkable
-class BarSource(Protocol):
-    def download_bars(
-        self,
-        code: str,
-        start: str,
-        end: str | None = None,
-        timeframe: str = "1d",
-        adj: str | None = None,
-        market: str | None = None,
-    ) -> pd.DataFrame: ...
+    code: str
+    market: str
+    timeframe: str
+    start: str
+    end: str
+    rows: int
+    factor_rows: int
+    skipped: bool
+    main_contract: str | None = None
 
 
 DownloadWindow = str
@@ -225,7 +222,7 @@ def iter_download_windows(
 
 def _download_chunk_with_retries(
     *,
-    source: BarSource,
+    source: MarketDataSource,
     code: str,
     start: str,
     end: str,
@@ -283,7 +280,7 @@ def _download_chunk_with_retries(
 
 def _download_factor_chunk_with_retries(
     *,
-    source: BarSource,
+    source: MarketDataSource,
     code: str,
     start: str,
     end: str,
@@ -297,8 +294,8 @@ def _download_factor_chunk_with_retries(
     此函数仅适用于A股（stock），期货无此需求。
     
     参数说明：
-      source (BarSource): 实现了 BarSource 接口的数据源对象。
-                         应具有 download_adjust_factors 方法才能正常工作。
+      source (MarketDataSource): 实现统一能力声明的数据源对象。
+                         需显式声明 supports_adjust_factors=True 才会触发因子下载。
       code (str): 股票代码，如 000001.SZ
       start (str): 窗口起始日期
       end (str): 窗口结束日期
@@ -313,19 +310,21 @@ def _download_factor_chunk_with_retries(
       RuntimeError: 当数据源支持该功能但所有重试都失败时抛出
 
     设计说明：
-      - 如果 source 不具有 download_adjust_factors 方法，直接返回空DataFrame（静默降级）
+      - 如果 source 未声明 supports_adjust_factors，直接返回空DataFrame（静默降级）
       - 只有在数据源明确支持该方法时才会触发重试和异常
 
     与 _download_chunk_with_retries 的区别：
       - 更宽松的异常处理（不支持的数据源不抛异常）
       - 仅用于A股复权因子
     """
-
     last_error: Exception | None = None
+    capabilities = source.get_capabilities()
+    if not capabilities.supports_adjust_factors:
+        return pd.DataFrame(columns=["code", "market", "dt", "factor_data"])
     attempts = max(1, int(chunk_retries))
     for attempt in range(1, attempts + 1):
         try:
-            return getattr(source, "download_adjust_factors")(
+            return source.download_adjust_factors(
                 code=code,
                 start=start,
                 end=end,
@@ -394,7 +393,7 @@ def sync_market_data(
     market: str | None,
     timeframe: str,
     store: LocalDataStore,
-    source: BarSource,
+    source: MarketDataSource,
     incremental: bool = True,
     download_window: str = "month",
     chunk_retries: int = 2,
@@ -413,7 +412,7 @@ def sync_market_data(
                            若为 None，则自动根据代码推断（通常由 XtQuantDataSource 实现）
       timeframe (str): 时间周期，如 1d/1w/1m/1h/5m 等
       store (LocalDataStore): 本地存储对象，负责保存/读取数据
-      source (BarSource): 数据源对象，需实现 BarSource 协议
+      source (MarketDataSource): 数据源对象，需实现统一 source contract
       incremental (bool): 是否启用增量下载模式，默认True
                          开启时会查询本地最新时间，从此处继续下载
       download_window (str): 下载时间窗口粒度，支持 day/month/quarter/year
@@ -452,7 +451,8 @@ def sync_market_data(
       - 大数据量下载：使用 download_window='month' 或更粗粒度窗口
       - 网络环境差：增加 chunk_retries，调整 retry_interval
     """
-    normalized_market = market or XtQuantDataSource._normalize_market(code)
+    normalized_market = source.infer_market(code=code, market=market)
+    capabilities = source.get_capabilities()
     download_start = start
     main_contract_hint = None
 
@@ -473,9 +473,9 @@ def sync_market_data(
                 )
             download_start = next_download_start(latest_dt, timeframe)
 
-    if normalized_market == "futures" and _is_main_contract_code(code) and hasattr(source, "get_main_contract"):
+    if normalized_market == "futures" and _is_main_contract_code(code) and capabilities.supports_main_contract:
         try:
-            main_contract_hint = getattr(source, "get_main_contract")(code, start=download_start, end=end)
+            main_contract_hint = source.get_main_contract(code, start=download_start, end=end)
         except RuntimeError:
             main_contract_hint = None
 
@@ -505,7 +505,7 @@ def sync_market_data(
         written += store.upsert_bars(code=code, bars=bars, timeframe=timeframe, market=normalized_market)
 
     factor_rows = 0
-    if normalized_market == "stock" and hasattr(source, "download_adjust_factors"):
+    if normalized_market == "stock" and capabilities.supports_adjust_factors:
         factor_start = start
         if incremental:
             latest_factor_dt = store.get_latest_factor_dt(code=code, market=normalized_market)
@@ -568,3 +568,16 @@ def _is_main_contract_code(code: str) -> bool:
       当下载期货数据时，如果给定的是主力合约代码，系统会尝试获取
       实际有效的主力合约代码（月份具体值），以便追踪主力合约的连续性。
     """
+    if "." not in code:
+        return False
+
+    symbol, _exchange = code.split(".", 1)
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        return False
+
+    if normalized_symbol.endswith("00"):
+        return True
+
+    # 当前系统也接受 IF.IF / IC.IC 这类“未带月份的主连简写”。
+    return normalized_symbol.isalpha()
