@@ -8,6 +8,7 @@ XtQuant 账户连接与账户查询管理。
 from __future__ import annotations
 
 import time
+import re
 from functools import lru_cache
 from dataclasses import dataclass
 from typing import Any
@@ -111,6 +112,7 @@ class XtQuantAssetSnapshot:
     market_value: float
     total_asset: float
     native_asset: Any
+    fetch_balance: float | None = None
     margin_ratio: float | None = None
     available_margin: float | None = None
 
@@ -128,11 +130,65 @@ class XtQuantPositionSnapshot:
 
 
 @dataclass(slots=True)
+class XtQuantPositionStatisticsSnapshot:
+    """统一的期货持仓统计快照。
+
+    说明：
+      - 该结构仅服务期货账户“持仓统计/持仓合计”展示；
+      - 数据来源必须是 XtQuant 专用接口 `query_position_statistics`，
+        不能由持仓明细手工聚合替代，否则口径会与柜台页面不一致。
+    """
+
+    instrument_id: str
+    direction: Any
+    native_statistics: Any
+
+
+@dataclass(slots=True)
+class XtQuantTradeSnapshot:
+    """统一的成交快照。"""
+
+    code: str
+    account_id: str
+    traded_id: str
+    traded_time: Any
+    traded_price: float
+    traded_volume: float
+    traded_amount: float
+    order_id: Any
+    direction: Any
+    offset_flag: Any
+    native_trade: Any
+
+
+@dataclass(slots=True)
+class XtQuantOrderSnapshot:
+    """统一的委托快照。"""
+
+    code: str
+    account_id: str
+    order_id: Any
+    order_time: Any
+    price: float
+    order_volume: float
+    traded_volume: float
+    traded_price: float
+    order_status: Any
+    status_msg: str
+    direction: Any
+    offset_flag: Any
+    native_order: Any
+
+
+@dataclass(slots=True)
 class XtQuantAccountSnapshot:
     """统一的账户查询结果。"""
 
     asset: XtQuantAssetSnapshot | None
     positions: list[XtQuantPositionSnapshot]
+    position_statistics: list[XtQuantPositionStatisticsSnapshot]
+    trades: list[XtQuantTradeSnapshot]
+    orders: list[XtQuantOrderSnapshot]
 
 
 class XtQuantTradeCallbackBase:
@@ -281,17 +337,48 @@ def query_account_asset(session: XtQuantSession) -> XtQuantAssetSnapshot | None:
 
 
 def query_account_positions(session: XtQuantSession) -> list[XtQuantPositionSnapshot]:
-    """查询账户持仓并转换为稳定结构。"""
+    """查询账户持仓并转换为稳定结构。
+
+    关键处理：
+      1. 将 XtQuant 原始持仓对象转换为项目内稳定快照；
+      2. 对明显已经平仓、但柜台接口仍暂时返回的“残留空记录”做过滤，
+         避免诊断页把白天盘/已平仓合约误展示为当前持仓。
+
+    过滤原则：
+      - 仅过滤“持仓量=0、可用量=0、保证金=0、市值=0”的记录；
+      - 只要任一关键持仓字段仍非 0，就保留，避免误删真实持仓。
+    """
     try:
         positions = session.trader.query_stock_positions(session.account) or []
         normalized: list[XtQuantPositionSnapshot] = []
         for pos in positions:
             code = str(getattr(pos, "stock_code", "") or "")
+            volume = float(getattr(pos, "volume", 0.0) or 0.0)
+            available_volume = float(getattr(pos, "can_use_volume", 0.0) or 0.0)
+            market_value = _optional_float(getattr(pos, "market_value", None))
+            margin = _optional_float(getattr(pos, "margin", None))
+            if _should_skip_closed_position_record(
+                volume=volume,
+                available_volume=available_volume,
+                market_value=market_value,
+                margin=margin,
+            ):
+                logger.info(
+                    "skip closed xtquant position residue: market=%s, account_id=%s, code=%s, volume=%s, can_use_volume=%s, market_value=%s, margin=%s",
+                    session.account_config.market,
+                    session.account_config.account_id,
+                    code,
+                    volume,
+                    available_volume,
+                    market_value,
+                    margin,
+                )
+                continue
             normalized.append(
                 XtQuantPositionSnapshot(
                     code=code,
-                    volume=float(getattr(pos, "volume", 0.0) or 0.0),
-                    available_volume=float(getattr(pos, "can_use_volume", 0.0) or 0.0),
+                    volume=volume,
+                    available_volume=available_volume,
                     open_price=float(getattr(pos, "open_price", 0.0) or 0.0),
                     is_futures_candidate=_looks_like_futures_code_for_display(code),
                     native_position=pos,
@@ -307,7 +394,134 @@ def query_account_positions(session: XtQuantSession) -> list[XtQuantPositionSnap
 
 def query_account_snapshot(session: XtQuantSession) -> XtQuantAccountSnapshot:
     """一次性查询账户资产和持仓。"""
-    return XtQuantAccountSnapshot(asset=session.query_asset(), positions=session.query_positions())
+    return XtQuantAccountSnapshot(
+        asset=session.query_asset(),
+        positions=session.query_positions(),
+        position_statistics=query_account_position_statistics(session),
+        trades=query_account_trades(session),
+        orders=query_account_orders(session),
+    )
+
+
+def query_account_position_statistics(session: XtQuantSession) -> list[XtQuantPositionStatisticsSnapshot]:
+    """查询期货持仓统计。
+
+    业务规则：
+      - 股票账户没有“期货持仓统计”概念，直接返回空列表；
+      - 期货账户必须调用 XtQuant 专用统计接口，避免把明细聚合结果误当成统计结果。
+
+    过滤规则：
+      - 持仓统计中 `position=0` 的项目视为已无实际持仓，不进入诊断展示；
+      - 这样可以避免已平仓合约仍残留在“持仓统计”页签中。
+    """
+    if session.account_config.market != "futures":
+        return []
+
+    try:
+        statistics = session.trader.query_position_statistics(session.account) or []
+        normalized: list[XtQuantPositionStatisticsSnapshot] = []
+        for item in statistics:
+            instrument_id = str(getattr(item, "instrument_id", "") or "")
+            position = _optional_float(getattr(item, "position", None))
+            if position is not None and abs(position) <= 1e-12:
+                logger.info(
+                    "skip zero futures position statistics: account_id=%s, instrument_id=%s, direction=%s, position=%s",
+                    session.account_config.account_id,
+                    instrument_id,
+                    getattr(item, "direction", None),
+                    position,
+                )
+                continue
+            normalized.append(
+                XtQuantPositionStatisticsSnapshot(
+                    instrument_id=instrument_id,
+                    direction=getattr(item, "direction", None),
+                    native_statistics=item,
+                )
+            )
+        logger.info(
+            "query futures position statistics finished: account_id=%s, count=%s",
+            session.account_config.account_id,
+            len(normalized),
+        )
+        return normalized
+    except Exception as exc:
+        raise XtQuantQueryError(
+            f"xtquant position statistics query failed: market={session.account_config.market}, "
+            f"account_id={session.account_config.account_id}, session_id={session.session_id}"
+        ) from exc
+
+
+def query_account_trades(session: XtQuantSession) -> list[XtQuantTradeSnapshot]:
+    """查询账户当日成交并转换为稳定结构。"""
+    try:
+        trades = session.trader.query_stock_trades(session.account) or []
+        normalized: list[XtQuantTradeSnapshot] = []
+        for trade in trades:
+            normalized.append(
+                XtQuantTradeSnapshot(
+                    code=str(getattr(trade, "stock_code", "") or ""),
+                    account_id=str(getattr(trade, "account_id", session.account_config.account_id)),
+                    traded_id=str(getattr(trade, "traded_id", "") or ""),
+                    traded_time=getattr(trade, "traded_time", None),
+                    traded_price=float(getattr(trade, "traded_price", 0.0) or 0.0),
+                    traded_volume=float(getattr(trade, "traded_volume", 0.0) or 0.0),
+                    traded_amount=float(getattr(trade, "traded_amount", 0.0) or 0.0),
+                    order_id=getattr(trade, "order_id", None),
+                    direction=getattr(trade, "direction", None),
+                    offset_flag=getattr(trade, "offset_flag", None),
+                    native_trade=trade,
+                )
+            )
+        logger.info(
+            "query account trades finished: market=%s, account_id=%s, count=%s",
+            session.account_config.market,
+            session.account_config.account_id,
+            len(normalized),
+        )
+        return normalized
+    except Exception as exc:
+        raise XtQuantQueryError(
+            f"xtquant trades query failed: market={session.account_config.market}, "
+            f"account_id={session.account_config.account_id}, session_id={session.session_id}"
+        ) from exc
+
+
+def query_account_orders(session: XtQuantSession) -> list[XtQuantOrderSnapshot]:
+    """查询账户当日委托并转换为稳定结构。"""
+    try:
+        orders = session.trader.query_stock_orders(session.account) or []
+        normalized: list[XtQuantOrderSnapshot] = []
+        for order in orders:
+            normalized.append(
+                XtQuantOrderSnapshot(
+                    code=str(getattr(order, "stock_code", "") or ""),
+                    account_id=str(getattr(order, "account_id", session.account_config.account_id)),
+                    order_id=getattr(order, "order_id", None),
+                    order_time=getattr(order, "order_time", None),
+                    price=float(getattr(order, "price", 0.0) or 0.0),
+                    order_volume=float(getattr(order, "order_volume", 0.0) or 0.0),
+                    traded_volume=float(getattr(order, "traded_volume", 0.0) or 0.0),
+                    traded_price=float(getattr(order, "traded_price", 0.0) or 0.0),
+                    order_status=getattr(order, "order_status", None),
+                    status_msg=str(getattr(order, "status_msg", "") or ""),
+                    direction=getattr(order, "direction", None),
+                    offset_flag=getattr(order, "offset_flag", None),
+                    native_order=order,
+                )
+            )
+        logger.info(
+            "query account orders finished: market=%s, account_id=%s, count=%s",
+            session.account_config.market,
+            session.account_config.account_id,
+            len(normalized),
+        )
+        return normalized
+    except Exception as exc:
+        raise XtQuantQueryError(
+            f"xtquant orders query failed: market={session.account_config.market}, "
+            f"account_id={session.account_config.account_id}, session_id={session.session_id}"
+        ) from exc
 
 
 def _optional_float(value: Any) -> float | None:
@@ -319,7 +533,55 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
+def _should_skip_closed_position_record(
+    *,
+    volume: float,
+    available_volume: float,
+    market_value: float | None,
+    margin: float | None,
+) -> bool:
+    """判断一条持仓记录是否属于已平仓残留记录。
+
+    业务背景：
+      柜台接口在某些时点会返回已经平仓、但尚未从查询结果中清除的残留记录。
+      这类记录通常会同时满足“数量为 0、可用为 0、市值为 0、保证金为 0”。
+
+    输入输出：
+      - 输入：持仓记录的关键数量字段
+      - 输出：True 表示应在展示前过滤，False 表示保留
+
+    设计原因：
+      - 只基于单一字段（例如 volume==0）过滤风险太高；
+      - 必须多个关键字段同时为 0 才过滤，尽量降低误判。
+    """
+    indicators = [volume, available_volume, market_value or 0.0, margin or 0.0]
+    return all(abs(float(value)) <= 1e-12 for value in indicators)
+
+
 def _looks_like_futures_code_for_display(code: str) -> bool:
-    normalized = str(code or "").upper()
-    indicators = ("IF", "IH", "IC", "IM", "RB", "RU", "CU", "AL", "ZN", "NI")
-    return any(indicator in normalized for indicator in indicators)
+    """判断持仓代码是否应按期货合约展示。
+
+    设计目标：
+      1. 这里只用于诊断展示，不参与真实交易路由；
+      2. 需要覆盖不同交易所的期货品种，不能依赖少量品种白名单；
+      3. 要避免把股票代码（如 000001.SZ / 600519.SH）误判为期货。
+
+    判断规则：
+      - 期货实盘持仓通常表现为“品种字母 + 交割合约数字 + 交易所后缀”，
+        例如 IF2406.IF、FG610.ZF、RB2510.SF；
+      - 因此这里要求：
+        a. 必须包含交易所分隔符 '.'
+        b. 点前符号部分必须同时包含字母和数字
+        c. 点后交易所后缀必须为纯字母
+
+    这样既能覆盖 FG610.ZF 这类郑商所合约，也能排除纯数字股票代码。
+    """
+    normalized = str(code or "").strip().upper()
+    if "." not in normalized:
+        return False
+
+    symbol, exchange = normalized.split(".", 1)
+    if not symbol or not exchange or not exchange.isalpha():
+        return False
+
+    return re.fullmatch(r"[A-Z]+[0-9]+", symbol) is not None

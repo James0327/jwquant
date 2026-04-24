@@ -1,5 +1,10 @@
 """交易执行层导出。"""
 
+from jwquant.trading.execution.account import (
+    XtQuantAccountDiagnostics,
+    build_account_diagnostics,
+    print_account_diagnostics,
+)
 from jwquant.trading.execution.broker import (
     XtQuantAccountConfig,
     XtQuantAccountSnapshot,
@@ -8,20 +13,24 @@ from jwquant.trading.execution.broker import (
     XtQuantConnectError,
     XtQuantError,
     XtQuantImportError,
+    XtQuantOrderSnapshot,
     XtQuantPositionSnapshot,
+    XtQuantPositionStatisticsSnapshot,
     XtQuantQueryError,
     XtQuantSession,
+    XtQuantTradeSnapshot,
     XtQuantTradeCallbackBase,
     connect_futures_account,
     connect_stock_account,
     connect_xtquant_account,
     query_account_asset,
+    query_account_orders,
     query_account_positions,
+    query_account_position_statistics,
     query_account_snapshot,
+    query_account_trades,
 )
 from jwquant.trading.execution.xtquant_diagnostics import (
-    XtQuantAccountDiagnostics,
-    build_account_diagnostics,
     format_account_asset_lines,
     format_account_position_lines,
 )
@@ -36,9 +45,12 @@ __all__ = [
     "XtQuantConnectError",
     "XtQuantError",
     "XtQuantImportError",
+    "XtQuantOrderSnapshot",
     "XtQuantPositionSnapshot",
+    "XtQuantPositionStatisticsSnapshot",
     "XtQuantQueryError",
     "XtQuantSession",
+    "XtQuantTradeSnapshot",
     "XtQuantTradeCallbackBase",
     "build_account_diagnostics",
     "connect_xtquant_account",
@@ -46,9 +58,13 @@ __all__ = [
     "connect_futures_account",
     "format_account_asset_lines",
     "format_account_position_lines",
+    "print_account_diagnostics",
     "query_account_asset",
+    "query_account_orders",
     "query_account_positions",
+    "query_account_position_statistics",
     "query_account_snapshot",
+    "query_account_trades",
     "ExecutionRiskGuard",
     "ExecutionRiskResult",
 ]

@@ -28,8 +28,8 @@ from jwquant.trading.execution import (
     XtQuantImportError,
     XtQuantSession,
     XtQuantTradeCallbackBase,
-    build_account_diagnostics,
     connect_xtquant_account,
+    print_account_diagnostics,
 )
 
 # 期货账户标识常量
@@ -96,11 +96,7 @@ def query_futures_account_info(
         print("查询失败：交易对象或账户未就绪")
         return
 
-    diagnostics = build_account_diagnostics(session, account_type=account_type)
-    for line in diagnostics.asset_lines:
-        print(line)
-    for line in diagnostics.position_lines:
-        print(line)
+    print_account_diagnostics(session, account_type=account_type)
 
 
 def logout_futures(session: XtQuantSession | None):

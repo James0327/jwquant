@@ -28,8 +28,8 @@ from jwquant.trading.execution import (
     XtQuantImportError,
     XtQuantSession,
     XtQuantTradeCallbackBase,
-    build_account_diagnostics,
     connect_xtquant_account,
+    print_account_diagnostics,
 )
 
 
@@ -85,11 +85,7 @@ def query_account_info(session: XtQuantSession | None):
         print("查询失败：交易对象或账户未就绪")
         return
 
-    diagnostics = build_account_diagnostics(session)
-    for line in diagnostics.asset_lines:
-        print(line)
-    for line in diagnostics.position_lines:
-        print(line)
+    print_account_diagnostics(session)
 
 
 def logout(session: XtQuantSession | None):
