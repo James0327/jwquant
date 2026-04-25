@@ -1,0 +1,41 @@
+# JWQuant 测试环境配置
+#
+# 仅放测试环境差异项：测试交易终端路径、测试资金账号、manual test 参数。
+# 公用配置请维护在 config/settings.common.toml。
+
+[broker.xtquant.stock]
+account_type = "STOCK"
+path = "C:\\GJ_QMT_TEST\\userdata_mini"
+account_id = "8880412630"
+max_retry = 5
+retry_interval = 3.0
+
+[broker.xtquant.futures]
+account_type = "FUTURE"
+path = "C:\\GJ_QMT\\userdata_mini"
+account_id = "809231050"
+max_retry = 5
+retry_interval = 3.0
+
+[test]
+enable_login = true
+enable_download = true
+enable_backtest = true
+enable_report = true
+max_retry = 5
+retry_interval = 3
+
+[test.target_stock]
+code = "002229.SZ"
+market = "stock"
+data_start_date = "2000-01-01"
+backtest_start_date = "2020-01-01"
+backtest_end_date = "2026-03-31"
+strategy_name = "chanlun"
+
+[test.backtest]
+initial_capital = 10000
+
+[test.report]
+dir = "reports/manual"
+chart_mode = "simple"

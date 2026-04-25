@@ -1,0 +1,19 @@
+# JWQuant 实盘环境配置
+#
+# 仅放实盘环境差异项：交易终端路径、资金账号等。
+# 公用配置请维护在 config/settings.common.toml。
+
+[broker.xtquant.stock]
+account_type = "STOCK"
+# 当前仓库未能从活动配置中明确识别股票实盘账号；以下保留历史候选值，使用前请按本机实盘环境确认。
+path = "C:\\GJ_QMT\\userdata_mini"
+account_id = "8890195341"
+max_retry = 5
+retry_interval = 3.0
+
+[broker.xtquant.futures]
+account_type = "FUTURE"
+path = "C:\\GJ_QMT\\userdata_mini"
+account_id = "809231050"
+max_retry = 5
+retry_interval = 3.0
