@@ -8,7 +8,7 @@
 - 期货保证金率
 - 期货合约乘数
 
-脚本层会优先从 ``config/settings.toml`` 的 ``[backtest.cost]`` 读取，
+脚本层会优先从 ``config/settings.common.toml`` 的 ``[backtest.cost]`` 读取，
 再把这些值传给 ``BacktestConfig`` 和 ``SimBroker``。
 """
 from __future__ import annotations

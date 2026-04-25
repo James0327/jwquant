@@ -15,7 +15,6 @@ Tushare API 连接与数据获取检查脚本
 Copyright (C) 2026 JW All rights reserved.
 """
 import logging
-import os
 
 import tushare as ts
 import pandas as pd
@@ -33,9 +32,9 @@ def get_tushare_pro():
     """初始化 Tushare Pro API 连接。"""
     logger.info("=" * 60)
     logger.info("开始初始化 Tushare Pro API 连接...")
-    token = os.getenv("JWQUANT_TUSHARE_TOKEN") or get_config("data.tushare.token")
+    token = get_config("data.tushare.token")
     if not token:
-        raise ValueError("缺少 Tushare Token，请设置 JWQUANT_TUSHARE_TOKEN 或 config/settings.toml 的 data.tushare.token")
+        raise ValueError("缺少 Tushare Token，请设置 config/settings.common.toml 的 data.tushare.token")
     ts.set_token(token)
     pro = ts.pro_api()
     logger.info("Tushare Pro API 连接初始化完成")

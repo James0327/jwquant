@@ -25,7 +25,7 @@
   4. 成功数据立即写入本地存储
   5. 支持中断后恢复：重新执行时从本地最新时间继续
 
-配置来源：config/settings.toml 中的 [data.download] 部分
+配置来源：config/settings.common.toml 中的 [data.download] 部分
   - window: 默认分段粒度
   - chunk_retries: 默认重试次数
   - retry_interval: 默认重试间隔
@@ -48,7 +48,7 @@ from jwquant.trading.data.sync import sync_market_data
 def load_download_defaults() -> dict[str, object]:
     """读取下载脚本默认配置
     
-    从 config/settings.toml 的 [data.download] 部分读取下载策略配置。
+    从 config/settings.common.toml 的 [data.download] 部分读取下载策略配置。
     这些参数只影响"如何分段执行下载"，不改变数据本身的含义。
     
     配置项说明：
@@ -181,7 +181,7 @@ def main() -> None:
     
     执行流程：
     1. 解析命令行参数
-    2. 加载配置文件 (config/settings.toml)
+    2. 加载分层配置文件 (settings.common.toml + settings.live.toml)
     3. 根据参数构建数据源和本地存储对象
     4. 调用 sync_market_data 执行下载和数据同步
     5. 输出下载结果摘要

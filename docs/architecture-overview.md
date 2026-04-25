@@ -147,7 +147,9 @@ LangGraph 工作流编排
 ```
 jwquant/
 ├── config/                      # 配置文件
-│   ├── settings.toml                # 系统配置（券商/数据源/LLM/风控）
+│   ├── settings.common.toml         # 公共系统配置
+│   ├── settings.live.toml           # 实盘差异配置
+│   ├── settings.test.toml           # 测试差异配置
 │   └── strategies.toml              # 策略参数配置
 │
 ├── jwquant/                     # 源码主包

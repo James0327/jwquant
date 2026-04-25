@@ -113,7 +113,7 @@ def logout_futures(session: XtQuantSession | None):
 
 if __name__ == "__main__":
     # 从配置文件读取期货账户配置
-    config = Config()
+    config = Config(profile="test")
     QMT_PATH = config.get("broker.xtquant.futures.path")
     FUTURES_ACCOUNT_ID = config.get("broker.xtquant.futures.account_id")
     ACCOUNT_TYPE = config.get("broker.xtquant.futures.account_type")

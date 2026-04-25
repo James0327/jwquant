@@ -5,7 +5,6 @@ common 层单元测试
 """
 import json
 import logging
-import os
 import tempfile
 import time
 from datetime import datetime
@@ -132,25 +131,116 @@ entry_window = 20
         # extra 新增的字段
         assert config.get("turtle.entry_window") == 20
 
-    def test_env_override(self, tmp_path):
+    def test_explicit_profile_loads_common_and_selected_profile(self, tmp_path):
+        """显式 profile 加载应按 common + profile 合并配置。
+
+        关键逻辑：
+          1. 模拟配置目录下的 common/live/test 三个文件；
+          2. 通过 load_config(profile="test") 显式选择 test；
+          3. 验证 common 公共项保留、test 环境项覆盖、live 环境项不混入。
+        """
         from jwquant.common import config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        self._write_toml(config_dir, "settings.common.toml", """
+[project]
+name = "jwquant"
+
+[data.store]
+path = "./data"
+
+[broker.xtquant.stock]
+account_type = "STOCK"
+max_retry = 5
+retry_interval = 3.0
+""")
+        self._write_toml(config_dir, "settings.live.toml", """
+[broker.xtquant.stock]
+path = "/live/qmt"
+account_id = "live-account"
+""")
+        self._write_toml(config_dir, "settings.test.toml", """
+[broker.xtquant.stock]
+path = "/test/qmt"
+account_id = "test-account"
+max_retry = 1
+""")
+
+        config.load_config(profile="test", config_dir=config_dir)
+
+        assert config.get("project.name") == "jwquant"
+        assert config.get("data.store.path") == "./data"
+        assert config.get("broker.xtquant.stock.account_type") == "STOCK"
+        assert config.get("broker.xtquant.stock.path") == "/test/qmt"
+        assert config.get("broker.xtquant.stock.account_id") == "test-account"
+        assert config.get("broker.xtquant.stock.max_retry") == 1
+
+    def test_explicit_profile_missing_file_raises(self, tmp_path):
+        """分层配置缺失时必须直接抛错，不能静默兜底。"""
+        from jwquant.common import config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        self._write_toml(config_dir, "settings.common.toml", """
+[project]
+name = "jwquant"
+""")
+
+        with pytest.raises(FileNotFoundError, match="settings.test.toml"):
+            config.load_config(profile="test", config_dir=config_dir)
+
+    def test_settings_toml_is_loaded_as_plain_toml_not_manifest(self, tmp_path):
+        """显式加载 settings.toml 时只按普通 TOML 读取，不解析 [config] 索引。"""
+        from jwquant.common import config
+
+        settings = self._write_toml(tmp_path, "settings.toml", """
+[config]
+common = "settings.common.toml"
+test = "settings.test.toml"
+""")
+
+        config.load_config(settings)
+
+        assert config.get("config.common") == "settings.common.toml"
+        with pytest.raises(KeyError, match="missing config key: project.name"):
+            config.get("project.name")
+
+    def test_environment_vars_do_not_override_config_file(self, tmp_path):
+        """配置值只能来自显式加载的 TOML 文件，环境变量不参与覆盖。
+
+        关键逻辑：
+          1. 写入一个包含 llm.api_key 的临时配置文件；
+          2. 验证加载后使用文件值；
+          3. 检查配置模块源码不存在环境变量扫描入口，避免运行环境隐式改变配置。
+        """
+        from jwquant.common import config
+
         f = self._write_toml(tmp_path, "c.toml", """
 [llm]
 api_key = "original"
 """)
-        with mock.patch.dict(os.environ, {"JWQUANT_LLM__API_KEY": "from_env"}):
-            config.load_config(f)
-        assert config.get("llm.api_key") == "from_env"
 
-    def test_env_type_coercion(self, tmp_path):
+        config.load_config(f)
+
+        assert config.get("llm.api_key") == "original"
+        assert ("os" + ".environ") not in Path(config.__file__).read_text(encoding="utf-8")
+
+    def test_config_file_values_keep_toml_types_without_env_coercion(self, tmp_path):
+        """类型转换由 TOML 解析负责，不再从环境变量字符串推断类型。"""
         from jwquant.common import config
-        f = self._write_toml(tmp_path, "d.toml", "[project]\nname = 'test'")
-        with mock.patch.dict(os.environ, {
-            "JWQUANT_NOTIFICATION__ENABLED": "true",
-            "JWQUANT_RISK__MAX_ORDER_AMOUNT": "50000",
-            "JWQUANT_RISK__MAX_POSITION_PCT": "0.15",
-        }):
-            config.load_config(f)
+
+        f = self._write_toml(tmp_path, "d.toml", """
+[notification]
+enabled = true
+
+[risk]
+max_order_amount = 50000
+max_position_pct = 0.15
+""")
+
+        config.load_config(f)
+
         assert config.get("notification.enabled") is True
         assert config.get("risk.max_order_amount") == 50000
         assert config.get("risk.max_position_pct") == 0.15

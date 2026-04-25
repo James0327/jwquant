@@ -1,5 +1,5 @@
 # 策略参数配置
-
+#
 [indicators.macd]
 fast_period = 12        # MACD快线周期
 slow_period = 26        # MACD慢线周期

@@ -60,15 +60,16 @@
 关键能力：
 
 - `load_config(primary, extra)`
+- `load_config(profile="test", config_dir="...")`
 - `get("a.b.c")`
 - `get_strategy_config(strategy_name)`
 - `validate()`
-- 环境变量覆盖规则：`JWQUANT_SECTION__SUBSECTION__KEY`
 
 注意：
 
 - 当前已经有 `Config` 类
 - 也保留了函数式接口 `load_config / get / get_*`
+- 配置目录切换必须通过显式 `config_dir` 参数完成
 - 新风控默认值现在也会通过配置读取
 
 ### 策略系统入口

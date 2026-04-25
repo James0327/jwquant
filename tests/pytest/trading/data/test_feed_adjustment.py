@@ -75,10 +75,9 @@ def test_get_bars_should_include_pre_start_adjust_factor_for_absolute_factor_mod
     assert hfq_bars.iloc[0]["open"] == 13.168
 
 
-def test_price_adjuster_should_allow_configurable_digits_via_env(tmp_path, monkeypatch) -> None:
+def test_price_adjuster_should_allow_configurable_digits_via_config(tmp_path) -> None:
     cfg_file = tmp_path / "adjust_digits_default.toml"
-    cfg_file.write_text("", encoding="utf-8")
-    monkeypatch.setenv("JWQUANT_DATA__ADJUST__PRICE_DIGITS", "4")
+    cfg_file.write_text("[data.adjust]\nprice_digits = 4\n", encoding="utf-8")
     config.load_config(cfg_file)
 
     store = LocalDataStore(base_path=tmp_path / "store", fmt="sqlite")

@@ -102,7 +102,7 @@ def logout(session: XtQuantSession | None):
 
 if __name__ == "__main__":
     # 从配置文件读取股票账户配置
-    config = Config()
+    config = Config(profile="test")
     QMT_PATH = config.get("broker.xtquant.stock.path")
     ACCOUNT_ID = config.get("broker.xtquant.stock.account_id")
 

@@ -394,7 +394,7 @@ LLM 生成：大模型基于上下文生成专业分析报告
 | 子模块 | 文件 | 功能描述 |
 |--------|------|---------|
 | 数据类型 | `common/types.py` | 共享数据结构：Bar、Tick、Signal、Order、Trade、Position、Asset、RiskEvent、StrategyMeta |
-| 配置管理 | `common/config.py` | 多文件合并(settings+strategies)、环境变量覆盖(JWQUANT_前缀)、敏感字段脱敏、配置校验、类型化 getter |
+| 配置管理 | `common/config.py` | 多文件合并(settings+strategies)、profile 分层加载、显式 config_dir 切换、敏感字段脱敏、配置校验、类型化 getter |
 | 结构化日志 | `common/log.py` | 按日滚动文件、JSON 结构化格式、分类日志器(交易/策略/智能体/系统)、@log_elapsed 性能装饰器、动态级别调整 |
 | 事件总线 | `common/event.py` | 发布/订阅解耦通信、EventType 事件常量、处理器优先级、条件过滤订阅、事件日志 |
 | 消息通知 | `common/notifier.py` | 微信(Server酱/PushPlus) + 钉钉(Webhook签名) + 邮件(SMTP/TLS)、分级路由、速率限制、消息模板、失败重试 |
@@ -404,7 +404,7 @@ LLM 生成：大模型基于上下文生成专业分析报告
 | 特性 | 说明 |
 |------|------|
 | 多文件合并 | `load_config(primary, extra=[...])` 深度合并多个 TOML 文件，后者覆盖前者 |
-| 环境变量覆盖 | `JWQUANT_BROKER_XTQUANT_PATH` → `broker.xtquant.path`，自动类型推断 |
+| 分层配置 | `load_config(profile="test", config_dir="...")` 按 common + profile 合并配置 |
 | 敏感字段脱敏 | `get_masked_config()` 自动将 api_key/token/password 等显示为 `***` |
 | 配置校验 | `validate()` 检查风控参数范围、券商路径存在性，返回错误列表 |
 | 类型化 getter | `get_str()` / `get_int()` / `get_float()` / `get_bool()` 类型安全访问 |

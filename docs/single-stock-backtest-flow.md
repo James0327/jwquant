@@ -40,7 +40,8 @@
 [scripts/run_backtest.py]
         |
         |-- 加载配置
-        |     |- settings.toml
+        |     |- settings.common.toml
+        |     |- settings.live.toml
         |     |- backtest.cost
         |     |- backtest.risk
         |
@@ -237,7 +238,7 @@
 
 相关默认值来自：
 
-- [settings.toml](/Users/james/PycharmProjects/jwquant/config/settings.toml) 的 `[backtest.cost]`
+- [settings.common.toml](/Users/james/PycharmProjects/jwquant/config/settings.common.toml) 的 `[backtest.cost]`
 
 ## 5. 关键代码入口
 
@@ -264,7 +265,7 @@
 
 当前单股票回测建议按下面顺序使用：
 
-1. 先确认本地已配置 XtQuant，且 `config/settings.toml` 的数据源与本地存储路径可用
+1. 先确认本地已配置 XtQuant，且 `config/settings.common.toml` + `config/settings.live.toml` 的数据源与本地存储路径可用
 2. 先用 `scripts/download_data.py` 预下载目标股票的原始行情与复权因子
 3. 再执行 `scripts/run_backtest.py` 做回测
 4. 默认建议股票回测显式传 `--adj none`，先验证原始行情链路

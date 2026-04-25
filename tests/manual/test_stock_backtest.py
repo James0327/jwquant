@@ -75,7 +75,7 @@ def login_xtquant(qmt_path=None, account_id=None, max_retry=None, retry_interval
         XtQuantSession | None: 成功时返回会话对象，失败时返回 None
     """
     # 从配置文件读取默认参数
-    config = Config()
+    config = Config(profile="test")
     if qmt_path is None:
         qmt_path = config.get("broker.xtquant.stock.path")
     if account_id is None:
@@ -131,7 +131,7 @@ def download_hongbo_data(code=None, market=None, start_date=None, end_date=None)
         str: 下载的股票代码
     """
     # 从配置文件读取默认参数
-    config = Config()
+    config = Config(profile="test")
     if code is None:
         code = config.get("test.target_stock.code")
     if market is None:
@@ -196,7 +196,7 @@ def run_backtest(code, backtest_start=None, backtest_end=None, strategy_name=Non
         dict: 回测结果，如果失败返回None
     """
     # 从配置文件读取默认参数
-    config = Config()
+    config = Config(profile="test")
     if backtest_start is None:
         backtest_start = config.get("test.backtest_start_date")
     if backtest_end is None:
@@ -305,7 +305,7 @@ def generate_report(
         backtest_end: 回测结束日期；未传入时从配置读取
     """
     # 从配置文件读取默认参数
-    config = Config()
+    config = Config(profile="test")
     if report_dir is None:
         report_dir = config.get("test.report.dir")
     if chart_mode is None:
@@ -397,8 +397,8 @@ def main():
 
     # 加载配置
     logger.info("加载系统配置...")
-    load_config(extra=["config/strategies.toml"])
-    config = Config()
+    load_config(profile="test", extra=["config/strategies.toml"])
+    config = Config(profile="test")
 
     # 从配置获取测试参数
     enable_login = config.get("test.enable_login")

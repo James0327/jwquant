@@ -2,10 +2,9 @@
 配置管理
 
 统一加载和管理系统配置：券商参数、策略参数、风控阈值、LLM API Key 等。
-支持 TOML 格式配置文件、多文件合并、环境变量覆盖、敏感字段脱敏。
+支持 TOML 格式配置文件、多文件合并、敏感字段脱敏。
 """
 import copy
-import os
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,8 @@ from typing import Any
 _config: dict[str, Any] = {}
 
 _SENSITIVE_KEYS = {"api_key", "token", "password", "secret", "account_id"}
+_DEFAULT_CONFIG_DIR = "config"
+_DEFAULT_CONFIG_PROFILE = "live"
 
 
 class Config:
@@ -26,10 +27,15 @@ class Config:
         api_key = config.get("llm.api_key")
     """
     
-    def __init__(self):
-        """初始化配置，如果尚未加载则自动加载。"""
+    def __init__(self, profile: str | None = None, config_dir: str | Path = _DEFAULT_CONFIG_DIR):
+        """初始化配置，如果尚未加载则自动加载。
+
+        Args:
+            profile: 配置环境名称。None 表示默认加载 live。
+            config_dir: 分层配置目录，仅在首次自动加载时使用。
+        """
         if not _config:
-            load_config()
+            load_config(profile=profile, config_dir=config_dir)
     
     def get(self, key: str) -> Any:
         """获取配置项，支持点号分隔的路径（如 'broker.xtquant.path'）。"""
@@ -59,17 +65,25 @@ class Config:
         """返回脱敏后的配置字典副本。"""
         return get_masked_config()
     
-    def reload(self, primary: str | Path = "config/settings.toml", extra: list[str | Path] | None = None) -> dict[str, Any]:
+    def reload(
+        self,
+        primary: str | Path | None = None,
+        extra: list[str | Path] | None = None,
+        profile: str | None = None,
+        config_dir: str | Path = _DEFAULT_CONFIG_DIR,
+    ) -> dict[str, Any]:
         """重新加载配置文件。
         
         Args:
-            primary: 主配置文件路径
+            primary: 主配置文件路径。None 表示使用 profile 分层配置。
             extra: 额外配置文件列表
+            profile: 配置环境名称，如 live/test。
+            config_dir: 分层配置目录。
             
         Returns:
             加载后的配置字典
         """
-        return reload_config(primary, extra)
+        return reload_config(primary, extra, profile=profile, config_dir=config_dir)
     
     def validate(self) -> list[str]:
         """校验配置必填项和值范围。
@@ -95,49 +109,6 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
-def _coerce_type(value: str) -> Any:
-    """将环境变量字符串转换为合适的 Python 类型。"""
-    if value.lower() in ("true", "1", "yes"):
-        return True
-    if value.lower() in ("false", "0", "no"):
-        return False
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    return value
-
-
-def _apply_env_overrides(config: dict) -> None:
-    """扫描 JWQUANT_ 前缀的环境变量并覆盖配置项。
-
-    环境变量格式：JWQUANT_SECTION__SUBSECTION__KEY=value
-    映射规则：双下划线 ``__`` 作为层级分隔符，单下划线保留为键名的一部分。
-
-    示例::
-
-        JWQUANT_LLM__API_KEY=sk-xxx        → config["llm"]["api_key"]
-        JWQUANT_BROKER__XTQUANT__PATH=/tmp  → config["broker"]["xtquant"]["path"]
-        JWQUANT_RISK__MAX_POSITION_PCT=0.15 → config["risk"]["max_position_pct"]
-    """
-    prefix = "JWQUANT_"
-    for env_key, env_val in os.environ.items():
-        if not env_key.startswith(prefix):
-            continue
-        # 双下划线分隔层级，单下划线保留
-        parts = env_key[len(prefix):].lower().split("__")
-        node = config
-        for part in parts[:-1]:
-            if part not in node or not isinstance(node[part], dict):
-                node[part] = {}
-            node = node[part]
-        node[parts[-1]] = _coerce_type(env_val)
-
-
 def _mask_value(key: str, value: Any) -> Any:
     """如果 key 属于敏感字段，返回脱敏后的值。"""
     if isinstance(value, dict):
@@ -147,38 +118,104 @@ def _mask_value(key: str, value: Any) -> Any:
     return value
 
 
+def _read_toml_file(path: Path) -> dict[str, Any]:
+    """读取单个 TOML 配置文件。
+
+    输入输出：
+      - 输入：TOML 文件路径；
+      - 输出：解析后的配置字典，不存在时返回空字典。
+
+    设计原因：
+      - 分层配置需要多次读取 common/profile/extra；
+      - 统一封装可以保证缺失文件的处理口径一致。
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"config file does not exist: {path}")
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+def _resolve_profile(profile: str | None = None) -> str:
+    """解析配置 profile。
+
+    规则：
+      - 调用方显式传入 profile 时使用该值；
+      - 未传入时默认使用 live；
+      - profile 不再从环境变量读取，避免命令行环境隐式改变交易配置。
+    """
+    resolved = str(profile or _DEFAULT_CONFIG_PROFILE).strip().lower()
+    return resolved or _DEFAULT_CONFIG_PROFILE
+
+
+def _resolve_config_dir(config_dir: str | Path = _DEFAULT_CONFIG_DIR) -> Path:
+    """解析分层配置目录。
+
+    输入输出：
+      - 输入：调用方显式传入的配置目录，默认是项目内 config；
+      - 输出：Path 对象，用于定位 settings.common.toml 和 settings.<profile>.toml。
+
+    设计原因：
+      - 配置目录不再从环境变量读取，避免测试、实盘或外部 shell 状态隐式改变加载路径；
+      - 测试场景需要切换目录时，必须通过 config_dir 参数显式传入。
+    """
+    return Path(config_dir)
+
+
+def _load_profile_config(
+    profile: str | None = None,
+    config_dir: str | Path = _DEFAULT_CONFIG_DIR,
+) -> dict[str, Any]:
+    """按 common + profile 的顺序加载分层配置。
+
+    关键逻辑：
+      1. 先加载 settings.common.toml，提供项目公共配置；
+      2. 再加载 settings.<profile>.toml，覆盖实盘/测试差异项；
+      3. 配置文件缺失直接抛错，避免静默使用错误环境。
+    """
+    config_dir = _resolve_config_dir(config_dir)
+    resolved_profile = _resolve_profile(profile)
+    common_path = config_dir / "settings.common.toml"
+    profile_path = config_dir / f"settings.{resolved_profile}.toml"
+
+    merged: dict[str, Any] = {}
+    for path in (common_path, profile_path):
+        merged = _deep_merge(merged, _read_toml_file(path))
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def load_config(
-    primary: str | Path = "config/settings.toml",
+    primary: str | Path | None = None,
     extra: list[str | Path] | None = None,
+    profile: str | None = None,
+    config_dir: str | Path = _DEFAULT_CONFIG_DIR,
 ) -> dict[str, Any]:
-    """加载配置文件并合并，最后应用环境变量覆盖。
+    """加载配置文件并合并。
 
     Args:
-        primary: 主配置文件路径。
+        primary: 主配置文件路径。None 表示加载分层配置：
+            settings.common.toml + settings.<profile>.toml。
         extra: 额外配置文件列表（如 strategies.toml），后加载的覆盖先加载的。
+        profile: 配置环境名称。None 表示默认 live。
+        config_dir: 分层配置目录，仅在 primary 为 None 时使用。
 
     Returns:
         合并后的完整配置字典。
     """
     global _config
-    path = Path(primary)
-    if path.exists():
-        with open(path, "rb") as f:
-            _config = tomllib.load(f)
+    if primary is None:
+        _config = _load_profile_config(profile, config_dir=config_dir)
     else:
-        _config = {}
+        primary_path = Path(primary)
+        _config = _read_toml_file(primary_path)
 
     for extra_path in (extra or []):
         p = Path(extra_path)
-        if p.exists():
-            with open(p, "rb") as f:
-                _config = _deep_merge(_config, tomllib.load(f))
+        _config = _deep_merge(_config, _read_toml_file(p))
 
-    _apply_env_overrides(_config)
     return _config
 
 
@@ -304,8 +341,10 @@ def validate() -> list[str]:
 
 
 def reload_config(
-    primary: str | Path = "config/settings.toml",
+    primary: str | Path | None = None,
     extra: list[str | Path] | None = None,
+    profile: str | None = None,
+    config_dir: str | Path = _DEFAULT_CONFIG_DIR,
 ) -> dict[str, Any]:
     """重新加载配置文件（热重载）。"""
-    return load_config(primary, extra)
+    return load_config(primary, extra, profile=profile, config_dir=config_dir)

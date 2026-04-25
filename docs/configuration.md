@@ -1,28 +1,33 @@
 # JWQuant 配置说明
 
-这份文档以 [settings.toml](/Users/james/PycharmProjects/jwquant/config/settings.toml) 为准，说明当前主要配置项的用途、取值语义和敏感项建议。
+这份文档以 [settings.common.toml](/Users/james/PycharmProjects/jwquant/config/settings.common.toml)、[settings.live.toml](/Users/james/PycharmProjects/jwquant/config/settings.live.toml) 和 [settings.test.toml](/Users/james/PycharmProjects/jwquant/config/settings.test.toml) 为准，说明当前主要配置项的用途、取值语义和敏感项建议。
 
 ## 1. 读取方式
 
 项目当前通过 [config.py](/Users/james/PycharmProjects/jwquant/jwquant/common/config.py) 加载配置。
 
-支持两种来源：
+支持两种加载方式：
 
-- `config/settings.toml`
-- 环境变量覆盖，格式为 `JWQUANT_SECTION__SUBSECTION__KEY=value`
+- `Config()` 或 `load_config()` 默认加载 `config/settings.common.toml` + `config/settings.live.toml`
+- `Config(profile="test")` 或 `load_config(profile="test")` 显式加载测试配置
+- 测试需要临时目录时，通过 `config_dir` 参数显式传入
 
 示例：
 
-```bash
-export JWQUANT_LLM__API_KEY="sk-xxx"
-export JWQUANT_DATA__TUSHARE__TOKEN="your-token"
-export JWQUANT_BROKER__XTQUANT__STOCK__ACCOUNT_ID="8880000000"
+```python
+from jwquant.common.config import Config, load_config
+
+live_config = Config()
+test_config = Config(profile="test")
+load_config(profile="test", config_dir="/tmp/jwquant-config")
 ```
 
 建议：
 
-- 敏感信息优先走环境变量
-- `settings.toml` 更适合放默认值、路径和开关
+- 公用项放入 `settings.common.toml`
+- 实盘差异项放入 `settings.live.toml`
+- 测试差异项放入 `settings.test.toml`
+- 真实账号、Token 等敏感值不要提交到公共仓库
 
 ## 2. 项目基础配置
 
@@ -62,7 +67,7 @@ export JWQUANT_BROKER__XTQUANT__STOCK__ACCOUNT_ID="8880000000"
 敏感项建议：
 
 - `account_id` 不建议直接提交真实值到公共仓库
-- 生产或共享环境优先通过环境变量覆盖
+- 生产或共享环境应使用本地私有配置文件维护真实值
 
 ## 4. 数据配置
 
@@ -71,7 +76,7 @@ export JWQUANT_BROKER__XTQUANT__STOCK__ACCOUNT_ID="8880000000"
 - `token`
   - Tushare Token
   - 留空表示当前不启用 Tushare 数据源
-  - 建议通过环境变量提供真实值
+  - 建议仅写入本地私有配置文件，避免提交真实值
 
 ### `[data.akshare]`
 

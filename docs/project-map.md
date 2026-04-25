@@ -37,7 +37,9 @@
 
 项目配置，采用 TOML。
 
-- `settings.toml`：系统总配置，含券商、数据源、LLM、日志、通知、风控
+- `settings.common.toml`：公共系统配置，含数据源、日志、通知、风控等公共项
+- `settings.live.toml`：实盘差异配置，含券商账号、路径等实盘项
+- `settings.test.toml`：测试差异配置，含手动联调和测试环境项
 - `strategies.toml`：策略参数模板
 - `docs/configuration.md`：配置项说明与敏感项建议
 - `docs/strategy-configuration.md`：策略参数说明与调参建议

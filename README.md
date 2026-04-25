@@ -69,14 +69,16 @@ jwquant/
 
 核心配置文件：
 
-- [config/settings.toml](/Users/james/PycharmProjects/jwquant/config/settings.toml)
+- [config/settings.common.toml](/Users/james/PycharmProjects/jwquant/config/settings.common.toml)
+- [config/settings.live.toml](/Users/james/PycharmProjects/jwquant/config/settings.live.toml)
+- [config/settings.test.toml](/Users/james/PycharmProjects/jwquant/config/settings.test.toml)
 - [config/strategies.toml](/Users/james/PycharmProjects/jwquant/config/strategies.toml)
 
 配置加载入口在 [jwquant/common/config.py](/Users/james/PycharmProjects/jwquant/jwquant/common/config.py)，支持：
 
 - 多 TOML 文件合并
-- `JWQUANT_` 前缀环境变量覆盖
-- 基础类型转换
+- `profile` 分层加载
+- 显式 `config_dir` 切换配置目录
 - 敏感字段脱敏
 - 部分配置校验
 
